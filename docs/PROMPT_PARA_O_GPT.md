@@ -30,13 +30,29 @@ Regra nova:
 - Reprocessar não altera fotos nem relatório; só limpa o estado de erro.
 - OS que o supervisor já resolveu manualmente no IMAS (Concluída lá) devem poder ser marcadas como concluídas no app sem passar por revisão (a extensão faz isso pelo botão Forçar fechamento via `PATCH /api/reports/downloaded`). Garanta que, após a baixa, a OS saia de Revisão e de Erro do IMAS e apareça como Concluída.
 
-## 3. Equipamento obrigatório nas OS corretivas de Climatização
-O IMAS não conclui OS de Climatização sem Equipamento vinculado.
-- Em "Nova OS" (corretiva) com sistema Climatização (por segurança, qualquer sistema), exigir **Equipamento**, escolhido em lista pesquisável (código + nome). Lista inicial: `equipamentos_IMAS_cliente91.csv`. Guarde essa lista no banco para poder atualizar depois.
-- Gravar `imasEquipmentCode` e `imasEquipmentName` no relatório e devolvê-los em `Job.report` na fila.
-- OS sem equipamento: alerta no painel "FALTA EQUIPAMENTO — escolha no app ou no IMAS antes de encerrar".
-- O mecânico de Refrigeração escolhe ao lançar o relatório; o supervisor pode corrigir.
+## 3. Equipamento: o COLABORADOR escolhe no RCO (obrigatório em TODA OS corretiva)
+Problema real (23/10): as OS 325134 e 325136 (Civil) aprovadas não encerraram no IMAS porque não tinham Equipamento vinculado, e o app não tinha essa informação. O colaborador precisa definir o equipamento no RCO, para a extensão encerrar sem intervenção.
+- Em **Nova OS** (corretiva) e no **relatório/correção do colaborador** (ReportEditor), campo **Equipamento** obrigatório, escolhido numa **lista pesquisável** (digitar parte do nome/código filtra). Item da lista = código + nome. Lista inicial no arquivo `equipamentos_IMAS_cliente91.csv` (código;equipamento, 272 itens); guardar em tabela no banco (`imas_equipments`) para o supervisor poder atualizar depois.
+- Nova coluna no relatório: `imasEquipmentCode` e `imasEquipmentName` (migração Drizzle, valor padrão vazio; não apagar nada). Devolver os dois em `Job.report` na fila `/api/imas/queue` (contrato: campos novos opcionais, schema continua 1).
+- Em `imas-jobs.ts`: corretiva (origin "app") sem `imasEquipmentCode` → erro "FALTA EQUIPAMENTO — escolha o equipamento no RCO" e `ready:false`.
+- O supervisor pode corrigir o equipamento de uma OS já enviada (edição). Para as OS já existentes sem equipamento, mostrar o alerta e permitir escolher.
 - OS preventivas já vêm do IMAS com equipamento: não exigir nada nelas.
+- A extensão (3.1, que farei depois) usará `imasEquipmentCode` para adicionar o equipamento no IMAS.
+
+## 3b. Botão "Reabrir OS" (quando o app diz Concluída, mas no IMAS não encerrou)
+- Em OS com status Concluída no app (corretiva ou com relatório), perfil supervisor: botão **Reabrir OS**, com confirmação ("No IMAS esta OS não foi encerrada?").
+- Efeito: volta o estado de automação para fila de encerramento (`queued`) mantendo a aprovação, limpa o erro/tentativa anterior, mantém fotos, relatório, histórico e número do IMAS; registra usuário, data/hora e motivo. Não apaga nada. Se `downloaded_at` estiver preenchido, limpar para a OS voltar à fila.
+- Para as OS em "Erro do IMAS" isso é o mesmo que Reprocessar; use um único botão claro ("Reabrir / Reprocessar").
+- Já aplicar às OS 325134 e 325136 (Erro do IMAS).
+
+## 3c. Botão "Já está OK no IMAS — baixar no RCO"
+- Caso: a OS já está Concluída no IMAS (por ajuste manual ou erro da extensão) e só falta encerrar no RCO.
+- Para OS **com relatório** (ex.: 323902, 324277, 324278): botão do supervisor que faz exatamente o efeito de `PATCH /api/reports/downloaded` (preenche `downloaded_at`, estado Concluída, sai da fila e da Revisão), com confirmação ("Confirme que a OS já está Concluída no IMAS"), sem depender da extensão e sem exigir aprovação de fotos. Registrar usuário e data/hora.
+- Para OS **sem relatório** use o botão da seção 4b. As duas ações devem ficar no mesmo menu da OS, com nomes distintos.
+- Aplicar a 323902.
+
+## 3d. Correção visual urgente
+Na tela "Revisão da OS" (ImasPanel) o texto era branco sobre fundo azul-claro (ilegível). Já corrigido no código (classe `text-slate-900` nos cartões ImasPanel, AutomacaoPanel e EngineerEdit). Mantenha a correção e confira se há outros cartões claros com texto branco no tema escuro.
 
 ## 4. Limpar botões sem uso
 Manter só o que o trabalho usa: Acompanhamento, Distribuir, Nova OS, Planilha, Relatórios, Documentos, Senha, Sair, Atualizar, abas Preventivas/Corretivas, filtros de área e status, nos cartões: Abrir OS, Reprogramar OS, Consultar serviço e equipamento / TAG, na Revisão: Aprovar, Rejeitar, Revisar, e o painel Automação IMAS. Remova botões de teste, diagnóstico antigo e automação por horário (removida da extensão). Liste em `RESUMO.txt` o que foi removido.
