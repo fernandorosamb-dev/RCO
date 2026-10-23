@@ -1,0 +1,12 @@
+
+[2026-10-13] Acompanhamento: abas "Preventivas (IMAS)" e "Corretivas (criadas no app)".
+ - Preventivas = OS importadas do IMAS (comportamento anterior, sem mudança).
+ - Corretivas = OS criadas no app (inclui teste de equipamento), com contadores: Aguardando IMAS / Criada no IMAS / Encerrada / Devolvida. Mês pela data da execução.
+ - Arquivo alterado: app/Dashboard.tsx (somente tela; sem mudança de banco ou API).
+
+21/10/2026 — PAINEL "AUTOMAÇÃO IMAS" (supervisor, aba Acompanhamento)
+- Novo componente app/AutomacaoPanel.tsx, incluído em app/page.tsx.
+- Botões: Criar OS corretivas · Concluir OS corretivas · Concluir preventivas liberadas · Auditoria do processo (erros da extensão) · Forçar fechamento (escolhe a OS).
+- Eles só disparam eventos (rco-imas-run-create/corrective/preventive, rco-imas-force) que a extensão 3.0.0+ executa. Nada roda sozinho. Sem a extensão 3.0.0 os botões não fazem nada.
+- Não altera banco, API nem contrato (schema 1). Prompt de ajustes maiores (Erro do IMAS separado, Equipamento): PROMPT_GPT_APROVACAO_E_EQUIPAMENTO.md.
+- Validação: só checagem de sintaxe TypeScript aqui (react/npm indisponíveis neste ambiente). Rodar build/testes antes de publicar.

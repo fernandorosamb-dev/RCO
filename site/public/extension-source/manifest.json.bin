@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "RCO para IMAS — Validação",
+  "version": "2.1.72",
+  "description": "Cria e salva OS como Aberta com vínculo no app. Fotos e encerramento aguardam validação.",
+  "permissions": [
+    "tabs",
+    "scripting",
+    "storage",
+    "alarms",
+    "downloads",
+    "debugger"
+  ],
+  "host_permissions": [
+    "https://rco-manutencao.fernandorosa-mb.chatgpt.site/*",
+    "https://admin.rcoengenharia.com/*"
+  ],
+  "background": {
+    "service_worker": "schedule.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "RCO para IMAS"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://rco-manutencao.fernandorosa-mb.chatgpt.site/*"
+      ],
+      "js": [
+        "rco.js"
+      ]
+    }
+  ]
+}

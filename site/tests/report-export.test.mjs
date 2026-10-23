@@ -1,0 +1,12 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {createRequire} from 'node:module';
+import vm from 'node:vm';
+import ts from 'typescript';
+const require=createRequire(import.meta.url), exports={};
+const compiled=ts.transpileModule(readFileSync(new URL('../app/report-export.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText;
+new Function('exports','require','fetch',compiled)(exports,name=>name==='./WorkOrderReturn'?{toJpeg:async file=>file}:require(name),async()=>new Response(readFileSync(new URL('../public/rco-logo.png',import.meta.url)),{headers:{'Content-Type':'image/png'}}));
+const report=(osNumber,origin='sistema',id=osNumber)=>({publicId:id,osNumber,origin,activityType:'Corretiva',collaborator:'Teste',executionStartedAt:'2026-09-04T10:30',completedAt:'2026-09-04T11:45',environment:'Sala',floor:'Térreo',observations:'=texto literal',status:'Concluída',description:'Descrição',equipment:'TAG',area:'civil',photos:[{publicId:'p1',fileName:'old.jpg',url:'/photo'}],workOrder:null});
+test('numeric OS ordering and collision-safe JPEG paths',()=>{const plan=exports.photoPlan([report('10'),report('2'),report('2','sistema','second')]);assert.deepEqual(Array.from(plan,x=>x.report.osNumber),['2','2','10']);assert.notEqual(plan[0].folder,plan[1].folder);assert.equal(plan[2].photos[0].name,'OS_10_Foto_01.jpg');assert.ok(!exports.safePart('../a:b').includes('/'));});
+test('Excel roundtrip preserves IMAS fields, dates, literal answers and separate APP identifiers',async()=>{const wb=await exports.makeResponseWorkbook([report('10'),report('2'),report('APP-20260904-TEST','app')]);const ExcelJS=require('exceljs');const loaded=new ExcelJS.Workbook();await loaded.xlsx.load(await wb.xlsx.writeBuffer());const s=loaded.getWorksheet('Respostas para o sistema');assert.equal(s.getCell('A5').value,'2');assert.equal(s.getCell('A6').value,'10');assert.equal(s.getCell('B7').value,'APP-20260904-TEST');assert.ok(!s.getCell('A7').value);assert.equal(s.getCell('H5').value,'Ajuste de data da execução');assert.equal(s.getCell('K5').value,'=texto literal');assert.equal(s.getCell('D5').value.toISOString(),'2026-09-04T00:00:00.000Z');assert.equal(s.getCell('E5').value.toISOString(),'1899-12-30T10:30:00.000Z');assert.equal(s.getImages().length,1);assert.equal(loaded.getWorksheet('Fotos por OS').getCell('D5').value,'OS_2_Foto_01.jpg');});

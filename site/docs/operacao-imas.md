@@ -1,0 +1,9 @@
+
+## 08/10/2026 — Devolução para correção
+Supervisor tem Devolver ao colaborador com motivo obrigatório. A OS fica Devolvida, aprovação/fila invalidada, fotos e resposta original preservadas. Colaborador corrige pelo editor e Reenviar OS corrigida. Não criar outra resposta para a mesma preventiva. OS em processamento/baixadas não podem ser devolvidas. Fabrício precisa de nova aprovação explícita do supervisor a partir desta alteração; aprovações anteriores não o liberam. Nenhuma rotina de navegação/preenchimento/envio de fotos/Salvar/OK da extensão foi alterada.
+
+## 08/10/2026 — Entrada automática no envio
+Retorno de preventiva, criação avulsa e correção passam pelo mesmo validador server-side após persistir campos e fotos. OS pronta recebe pedido queued/fingerprint imediatamente; exceções recebem review. A aprovação do supervisor permanece apenas nas exceções. O navegador instalado continua o executor e consulta a fila a cada minuto; não é execução na nuvem. Mensagem de envio informa fila/revisão, relatórios distinguem Na fila automática e Executando no IMAS. Fabricio permanece retido sem aprovação explícita. A extensão e suas rotinas de clique/envio não foram alteradas.
+
+## 08/10/2026 — Inicialização do worker 2.1.70
+Print local confirmou Service worker registration failed (status 2), com todos os arquivos presentes. Causa exata local ainda não demonstrada. Empacotamento passa a entregar worker clássico standalone, eliminando importações de módulos no registro; corpo operacional de background.js preservado literalmente. Teste de inicialização confirma registro dos listeners e alarmes com APIs simuladas e integridade do payload. Como o worker anterior não inicia, a primeira recarga no Chrome deve ser manual depois que o atualizador baixar 2.1.70. Não remover extensão nem limpar storage/tentativas. F5 no app renova contexto após recarga. Validação no Chrome real ainda necessária.

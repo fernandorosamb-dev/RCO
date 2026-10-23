@@ -1,0 +1,1 @@
+ALTER TABLE `service_reports` ADD `downloaded_at` integer;

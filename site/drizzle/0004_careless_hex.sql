@@ -1,0 +1,1 @@
+ALTER TABLE `meter_readings` ADD `submitted_by_role` text DEFAULT '' NOT NULL;

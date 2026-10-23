@@ -1,0 +1,66 @@
+RCO PARA IMAS — VALIDACAO COM ATUALIZACAO AUTOMATICA DA FONTE
+
+CONFIGURACAO INICIAL — UMA VEZ
+1. Execute Instalar_Atualizador_RCO.cmd no seu Windows.
+2. O instalador baixa os arquivos da fonte publicada e abre a pasta permanente.
+3. Em chrome://extensions, ative Modo do desenvolvedor.
+4. Clique Carregar sem compactacao e selecione:
+   %LOCALAPPDATA%\RCO_IMAS\Extensao_IMAS
+5. Nao mantenha a extensao antiga ativa. Entre como Supervisor no app RCO.
+6. Nas proximas publicacoes, os arquivos dessa pasta serao sincronizados.
+   Nao e necessario baixar, extrair ou trocar ZIP a cada versao.
+
+CRIAR (FASE 02)
+- Preencha Nova OS no app, incluindo Assunto, Sistema e abertura.
+- Deixe uma única aba do IMAS aberta e autenticada. A extensão navega pelo menu
+  Manutenção > Ordens de serviço pendentes > Novo e prepara o formulário.
+- Na extensão, consulte a fila e prepare UMA OS.
+- Confira os dados e o status Aberta. A extensão NÃO salva.
+- Após sua validação, você pode salvar manualmente no IMAS.
+- Anote o número gerado e vincule-o ao registro APP no painel do supervisor.
+  Sem esse vínculo, o app não sabe qual OS foi criada. Não repita a criação.
+
+ENCERRAR (FASE 03)
+- Deixe o IMAS aberto e autenticado. A extensão abre o número correto da fila.
+  Se outra OS estiver em edição, finalize ou descarte essa edição antes do teste.
+- Libere o teste anterior após sua revisão e prepare a mesma referência novamente.
+- A extensão preenche datas, observação, justificativa e status Concluída.
+- Seleciona fotos no campo de arquivos, SEM enviar ou disparar eventos de upload.
+- Valide a prévia. A extensão NÃO clica em Enviar arquivos, NÃO salva e NÃO marca baixa.
+- Depois da sua aprovação, carregue as fotos manualmente pelo IMAS, confira o
+  número/galeria de evidências, salve a conclusão e confirme que ficou Concluída.
+- Só então use OS baixada no app.
+- Se o formulário for diferente, use Conferir campos. Em ambiguidade o teste para.
+
+HORÁRIOS (FASE 05)
+- No popup, marque Consultar fila às 11h e 16h (America/Sao_Paulo).
+- Nesta versão, o agendamento APENAS consulta a fila, atualiza o ícone e o histórico.
+  Não navega entre OS, não salva, não envia fotos e não dá baixa.
+- A extensão precisa estar instalada no Chrome que continua aberto, com sessão
+  válida no app RCO. Sessão expirada gera bloqueio registrado, nunca login automático.
+- O computador ligado não garante que Chrome/sessão estejam disponíveis.
+- Se o navegador estava fechado, retoma no próximo horário; não executa atrasos em massa.
+- O modo de produção com gravação só deve ser implementado/liberado após validar
+  criação, número gerado, upload de todas as fotos e conclusão no IMAS real.
+
+LIMITES DA AUDITORIA
+Os campos foram definidos pelas telas fornecidas. Esta versão não foi testada
+em uma sessão autenticada do IMAS neste ambiente. Não use como produção automática.
+O horário usa o relógio do computador. Relógio incorreto pode atrasar a consulta.
+O campo de fotos precisa permitir múltiplos arquivos; caso contrário o teste para.
+Dados da fila permanecem no app. A extensão guarda somente a reserva do teste,
+preferência de horário e histórico das últimas 100 operações neste computador.
+Nenhuma senha é armazenada. Não há botão de liberação da gravação nesta versão.
+
+ATUALIZACAO SEM TROCAR ZIP
+Execute Instalar_Atualizador_RCO.cmd uma unica vez e carregue no Chrome a pasta
+%LOCALAPPDATA%\RCO_IMAS\Extensao_IMAS. Nao carregue a pasta de Downloads.
+O Windows consulta a fonte publicada a cada 5 minutos; arquivos so sao trocados
+apos verificar versao, tamanho e SHA-256 de todos os arquivos. A pasta Anterior
+preserva uma versao anterior. Erros ficam em %LOCALAPPDATA%\RCO_IMAS\atualizacao.log.
+A extensao verifica os arquivos locais a cada minuto e recarrega quando nao ha
+teste reservado. Teste pendente adia a recarga ate voce liberar a revisao.
+Permissoes novas e modo com gravacao ficam bloqueados para revisao.
+O Windows/antivirus da empresa pode exigir autorizacao na configuracao inicial.
+Este mecanismo nao recebe comandos remotos para Windows: sincroniza somente
+os arquivos aprovados da extensao a partir do dominio fixo do app RCO.

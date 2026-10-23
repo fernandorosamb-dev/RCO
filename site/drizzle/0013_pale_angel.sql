@@ -1,0 +1,1 @@
+ALTER TABLE `service_reports` ADD `return_reason` text DEFAULT '' NOT NULL;

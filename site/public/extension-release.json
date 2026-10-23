@@ -1,0 +1,62 @@
+{
+  "version": "2.1.72",
+  "releaseId": "932b9ea7f02efbdd663a6fbfe3d7deab4202cd62b37019dbd679356b191a28ba",
+  "mode": "validation",
+  "saveAllowed": false,
+  "files": [
+    {
+      "name": "INSTALAR.txt",
+      "path": "/extension-source/INSTALAR.txt.bin",
+      "size": 4236,
+      "sha256": "a9d282978750d7de5a5ddc7e67e39380fc796205f039d952c79a1b15f23178d3"
+    },
+    {
+      "name": "background.js",
+      "path": "/extension-source/background.js.bin",
+      "size": 102400,
+      "sha256": "b035969880aa22d60f1ee4718fdeee4138cc1066aea8267d25a0d09f1a2dd5b0"
+    },
+    {
+      "name": "imas.js",
+      "path": "/extension-source/imas.js.bin",
+      "size": 45387,
+      "sha256": "5cdd465b09b5bc8d2e07abedd2447e49b1277734707c34b0e0ab1298136642c8"
+    },
+    {
+      "name": "manifest.json",
+      "path": "/extension-source/manifest.json.bin",
+      "size": 771,
+      "sha256": "5a56f61224a6dba3fa1633ef8a109a2fd509955805dd0d199eb2a5100db239cc"
+    },
+    {
+      "name": "popup.html",
+      "path": "/extension-source/popup.html.bin",
+      "size": 1255,
+      "sha256": "102adc596f3af08abbb0acfb47dffc0a8c30efae9c8570aa6c2ec12b4c7a9703"
+    },
+    {
+      "name": "popup.js",
+      "path": "/extension-source/popup.js.bin",
+      "size": 5997,
+      "sha256": "4c8a380f93aa73cb93bc12d25b8a4a6028fb37985c6ea80cc6f43a2b5166e59a"
+    },
+    {
+      "name": "rco.js",
+      "path": "/extension-source/rco.js.bin",
+      "size": 4075,
+      "sha256": "e96f21256389de7d4dd1f934c5d6f75972e2111bcb69d9b587324fb7ddb7bf49"
+    },
+    {
+      "name": "schedule.js",
+      "path": "/extension-source/schedule.js.bin",
+      "size": 954,
+      "sha256": "1c0c85d379a7ba6eb4982b401ec628c10737fde1f3e755da4282a3e8c0810f2d"
+    },
+    {
+      "name": "update.js",
+      "path": "/extension-source/update.js.bin",
+      "size": 1398,
+      "sha256": "24e504fb27d381ca91315373d05ce785e1257c92b0fab8d237afc06adb4ea503"
+    }
+  ]
+}

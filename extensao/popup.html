@@ -1,0 +1,23 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>RCO → IMAS</title><style>
+body{font:14px Arial;width:380px;padding:14px;color:#173f67;margin:0}
+h1{font-size:18px;margin:0 0 8px}
+button,select{padding:10px;margin:4px 0;width:100%;box-sizing:border-box;font:inherit}
+button{cursor:pointer}button:disabled{cursor:default;opacity:.5}
+.go{background:#173f67;color:#fff;border:0;border-radius:6px}
+.warn{background:#fdecea;border:1px solid #d9534f;border-radius:6px}
+hr{border:0;border-top:1px solid #d7e0ea;margin:10px 0}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:260px;overflow:auto;background:#eef3f8;padding:10px;margin:8px 0 0}
+small{color:#5b6b7b}
+</style></head><body>
+<h1>RCO → IMAS <small id="ver"></small></h1>
+<button id="create" class="go" disabled>Criar OS corretivas no IMAS</button>
+<button id="corr" class="go" disabled>Concluir OS corretivas</button>
+<button id="prev" class="go" disabled>Concluir OS preventivas liberadas</button>
+<button id="stop" disabled>Parar lote</button>
+<hr>
+<button id="audit">Auditoria do processo (log de erros)</button>
+<hr>
+<select id="jobs"><option value="">Carregando OS…</option></select>
+<button id="force" class="warn" disabled>Forçar fechamento da OS selecionada</button>
+<pre id="status" role="status"></pre>
+<script src="popup.js"></script></body></html>

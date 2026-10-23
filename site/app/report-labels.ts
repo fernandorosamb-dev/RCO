@@ -1,0 +1,1 @@
+export const FIELD_LABELS:Record<string,string>={collaborator:"Executor",executionStartedAt:"Início da execução",completedAt:"Conclusão",environment:"Ambiente",floor:"Pavimento",observations:"Serviço realizado",activityType:"Tipo de atividade",description:"Descrição",equipment:"Equipamento/TAG",imasSystem:"Sistema",imasSubject:"Assunto"};
