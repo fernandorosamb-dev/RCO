@@ -240,3 +240,6 @@ button:focus-visible,a:focus-visible,summary:focus-visible{outline:2px solid #ff
 .rco-heading-subtitle{display:block;color:#c4c8d0;font-size:.875rem;font-weight:500;margin-top:.2rem;}.login-scene h1{margin-top:8rem;}.login-heading-subtitle{display:block;font-size:1.35rem;color:#ffae7a;font-weight:500;margin-top:.6rem;}@media(max-width:700px){.login-scene h1{margin-top:2rem;}.login-heading-subtitle{font-size:1.125rem;}.rco-heading-subtitle{font-size:.8rem;}}
 
 .login-brand-bar{grid-column:1/-1;background:#0c0d0e;padding:1.7rem 2.5rem;border-bottom:1px solid #36393f;}.login-brand-bar .login-logo{width:250px;height:85px;margin:0;}.login-scene-content{justify-content:flex-end;}.login-scene h1{margin-top:0;}@media(max-width:700px){.login-brand-bar{padding:1.25rem 1.5rem;}.login-brand-bar .login-logo{width:210px;height:70px;}.login-scene h1{margin-top:0;}}
+.rco-app .bg-cyan-50 {background-color:#16303a;color:#f2f3f5;}
+.rco-app .border-cyan-200 {border-color:#2f5866;}
+.rco-app .bg-cyan-50 :is(.text-slate-950,.text-slate-900,.text-slate-800) {color:#f2f3f5;}

@@ -28,3 +28,19 @@ test('várias combinações respeitam sempre as três regras',()=>{
     assert.ok(m(r.executionStartedAt)>=510&&m(r.completedAt)<=960&&m(r.completedAt)-m(r.executionStartedAt)>=180);assert.ok(r.imasOpenedAt<=r.executionStartedAt);}
 });
 test('formato inválido é a única recusa',()=>{assert.equal(n('x','2026-10-08T10:00'),null);assert.equal(n('2026-10-08T10:00',''),null);});
+test('datas impossíveis e horas inválidas não viram execução válida',()=>{
+  for(const invalid of ['2026-02-30T09:00','2026-10-08T24:00','2026-10-08T09:60']){
+    assert.equal(n(invalid,'2026-10-08T13:00'),null);
+    assert.equal(n('2026-10-08T09:00',invalid),null);
+  }
+});
+test('execução em dias diferentes usa o dia do início e respeita a janela',()=>{
+  const r=n('2026-10-08T19:00','2026-10-09T07:00');
+  assert.equal(r.executionStartedAt,'2026-10-08T13:00');
+  assert.equal(r.completedAt,'2026-10-08T16:00');
+});
+test('conclusão futura usa o dia do envio original mesmo quando automação roda depois',()=>{const receipt='2026-10-13T12:45:00Z';const r=exports.normalizeReportSchedule('2026-10-15T13:00','2026-10-15T16:00','',receipt,new Date('2026-10-20T15:00:00Z'));assert.equal(r.completedAt,'2026-10-13T12:45');assert.ok(r.executionStartedAt<=r.completedAt);assert.ok(r.imasOpenedAt<=r.executionStartedAt);});
+test('datas ausentes/impossíveis recebem data do envio e conclusão passada válida é mantida',()=>{for(const end of ['','2026-02-30T10:00']){const r=exports.normalizeReportSchedule('',end,'','2026-10-14T15:00:00Z');assert.equal(r.completedAt.slice(0,10),'2026-10-14');assert.ok(r.executionStartedAt<=r.completedAt);}const past=exports.normalizeReportSchedule('2026-10-10T09:00','2026-10-10T13:00','','2026-10-14T15:00:00Z');assert.equal(past.completedAt,'2026-10-10T13:00');});
+test('nova regra mantém mínimo de 3 h no mesmo dia; madrugada usa dia de São Paulo',()=>{const r=exports.normalizeReportSchedule('2026-10-14T08:30','2026-10-14T09:00','','2026-10-14T12:15:00Z');assert.equal(r.completedAt,'2026-10-14T11:30');assert.equal(exports.normalizeReportSchedule('','','','2026-10-15T01:00:00Z').completedAt.slice(0,10),'2026-10-14');});
+
+test('caso FBE4542E e aviso não bloqueante usam o dia 14/10',()=>{const result=n('2026-10-14T08:58','2026-10-16T09:11');assert.equal(result.executionStartedAt,'2026-10-14T08:58');assert.equal(result.completedAt,'2026-10-14T11:58');assert.match(exports.scheduleWarning('2026-10-14T08:58','2026-10-16T09:11'),/14\/10\/2026/);});

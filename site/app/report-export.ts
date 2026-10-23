@@ -2,12 +2,13 @@ import { toJpeg } from "./WorkOrderReturn";
 
 import type { ImasFields } from "./imas-config";
 export type ExportReport = ImasFields & {
-  supervisorReleased?: boolean; returnReason?: string; automationState?: string; photoApprovalStatus?: string; photoApprovedAt?: string|null;
+  executorImasName?:string;createdAt?: string|Date;downloadedAt?:string|null;
+  automationFeedback?: import("./automation-feedback").AutomationFeedback; supervisorReleased?: boolean; returnReason?: string; automationState?: string; photoApprovalStatus?: string; photoApprovedAt?: string|null;
   publicId: string; osNumber: string; origin: string; activityType: string; collaborator: string;
   executionStartedAt: string; completedAt: string; environment: string; floor: string;
   observations: string; status: string; description: string; equipment: string; area: string;
   photos: { publicId: string; fileName: string; url: string }[];
-  workOrder: { assignedArea?: string; unit?: string; description: string; equipment: string } | null;
+  workOrder: {competence?:string;plannedExecutionAt?:string;dueAt?:string; assignedArea?: string; unit?: string; description: string; equipment: string } | null;
 };
 export const IMAS_JUSTIFICATION = "Ajuste de data da execução";
 export const sortedReports = (reports: ExportReport[]) => [...reports].sort((a,b) => a.osNumber.localeCompare(b.osNumber,"pt-BR",{numeric:true}) || a.publicId.localeCompare(b.publicId));

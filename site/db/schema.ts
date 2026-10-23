@@ -61,6 +61,8 @@ export const serviceReports = sqliteTable("service_reports", {
   activityType: text("activity_type").notNull().default(""),
   description: text("description").notNull().default(""),
   equipment: text("equipment").notNull().default(""),
+  imasEquipmentCode: text("imas_equipment_code").notNull().default(""),
+  imasEquipmentName: text("imas_equipment_name").notNull().default(""),
   area: text("area").notNull().default(""),
   createdByRole: text("created_by_role").notNull().default(""),
   imasSystem: text("imas_system").notNull().default(""),
@@ -154,4 +156,53 @@ export const batchRequests = sqliteTable("batch_requests", {
   state: text("state").notNull().default("pending"),
   createdAt: integer("created_at").notNull(),
   claimedAt: integer("claimed_at"),
+});
+
+// Documentos de RH ficam na plataforma e não participam da integração IMAS.
+export const medicalDocuments = sqliteTable("medical_documents", {
+ publicId:text("public_id").primaryKey(),
+ reference:text("reference").notNull().unique(),
+ submissionToken:text("submission_token").notNull().unique(),
+ createdByRole:text("created_by_role").notNull(),
+ dataJson:text("data_json").notNull(),
+ objectKey:text("object_key").notNull().unique(),
+ contentType:text("content_type").notNull(),
+ fileName:text("file_name").notNull(),
+ fileSize:integer("file_size").notNull(),
+ emailStatus:text("email_status").notNull().default("pending_configuration"),
+ emailError:text("email_error").notNull().default(""),
+ gmailMessageId:text("gmail_message_id").notNull().default(""),
+ emailSentAt:integer("email_sent_at"),
+ supervisorSeenAt:integer("supervisor_seen_at"),
+ engineerSeenAt:integer("engineer_seen_at"),
+ createdAt:integer("created_at").notNull(),
+ updatedAt:integer("updated_at").notNull(),
+},table=>[index("idx_medical_documents_role_created").on(table.createdByRole,table.createdAt)]);
+
+export const workOrderSchedule = sqliteTable("work_order_schedule", {
+ workOrderPublicId:text("work_order_public_id").primaryKey(),
+ originalDate:text("original_date").notNull(),
+ executionDate:text("execution_date").notNull(),
+ reason:text("reason").notNull().default(""),
+ changedByRole:text("changed_by_role").notNull(),
+ changeId:text("change_id").notNull().unique(),
+ revision:integer("revision").notNull().default(1),
+ updatedAt:integer("updated_at").notNull(),
+});
+export const workOrderScheduleHistory = sqliteTable("work_order_schedule_history", {
+ publicId:text("public_id").primaryKey(),
+ workOrderPublicId:text("work_order_public_id").notNull(),
+ previousDate:text("previous_date").notNull(),
+ executionDate:text("execution_date").notNull(),
+ reason:text("reason").notNull().default(""),
+ changedByRole:text("changed_by_role").notNull(),
+ revision:integer("revision").notNull(),
+ createdAt:integer("created_at").notNull(),
+},table=>[uniqueIndex("idx_schedule_history_revision").on(table.workOrderPublicId,table.revision)]);
+
+export const roleResponsibles=sqliteTable("role_responsibles",{
+ area:text("area").primaryKey(),name:text("name").notNull(),imasName:text("imas_name").notNull().default(""),revision:integer("revision").notNull(),changeId:text("change_id").notNull(),updatedAt:integer("updated_at").notNull(),
+});
+export const roleResponsibleHistory=sqliteTable("role_responsible_history",{
+ publicId:text("public_id").primaryKey(),area:text("area").notNull(),previousName:text("previous_name").notNull(),previousImasName:text("previous_imas_name").notNull(),name:text("name").notNull(),imasName:text("imas_name").notNull(),revision:integer("revision").notNull(),changedByRole:text("changed_by_role").notNull(),createdAt:integer("created_at").notNull(),
 });

@@ -1,0 +1,13 @@
+"use client";
+import {useEffect,useState} from "react";
+import {Bell} from "lucide-react";
+import type {Role} from "./access";
+import {medicalTitles,medicalEmailStatus,type MedicalData} from "./medical-documents";
+type Notice={publicId:string;person:string;kind:MedicalData["kind"];emailStatus:string;reference:string};
+export default function MedicalNotifications({role,onOpen}:{role:Role;onOpen:()=>void}){
+ const [notices,setNotices]=useState<Notice[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState("");
+ useEffect(()=>{let active=true;const check=async()=>{try{const response=await fetch("/api/medical-documents/notifications",{cache:"no-store"});if(!response.ok)return;const result=await response.json();if(active)setNotices(result.notifications);}catch{/* A próxima consulta retoma a notificação. */}};void check();const interval=setInterval(()=>void check(),45000);window.addEventListener("rco-medical-updated",check);return ()=>{active=false;clearInterval(interval);window.removeEventListener("rco-medical-updated",check);};},[role]);
+ if(!notices.length)return null;
+ async function dismiss(open=false){setBusy(true);setError("");try{const response=await fetch("/api/medical-documents/notifications",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({publicIds:notices.map(item=>item.publicId)})});if(!response.ok)throw Error();setNotices([]);if(open)onOpen();}catch{setError("Não foi possível confirmar a leitura. Tente novamente.");}finally{setBusy(false);}}
+ return <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4"><section role="dialog" aria-modal="true" aria-labelledby="medical-notification-title" className="report-card w-full max-w-lg border-orange-500 shadow-2xl"><h2 id="medical-notification-title" className="flex items-center gap-2 text-xl font-bold"><Bell className="text-orange-400"/>Documento entregue</h2><p className="mt-2 text-sm text-slate-400">{notices.length} nova{notices.length>1?"s entregas":" entrega"} de documento ao RH.</p><div className="mt-4 max-h-64 space-y-3 overflow-auto">{notices.map(item=><div key={item.publicId} className="border-b border-slate-700 pb-3"><p className="font-bold">{item.person}</p><p className="text-sm">{medicalTitles[item.kind]} · {item.reference}</p><p className="mt-1 text-sm text-orange-300">{medicalEmailStatus(item.emailStatus)}</p></div>)}</div>{error&&<p role="alert" className="mt-3 text-sm text-amber-300">{error}</p>}<div className="mt-5 flex flex-wrap gap-3"><button className="report-button" disabled={busy} onClick={()=>void dismiss(true)}>Ver documentos</button><button className="nav-button" disabled={busy} onClick={()=>void dismiss()}>Estou ciente</button></div></section></div>;
+}

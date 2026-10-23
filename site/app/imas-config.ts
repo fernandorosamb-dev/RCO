@@ -5,7 +5,7 @@ export const IMAS_FIXED = {clientCode:"91", client:"BB - DEPOSITO SÃO PAULO",un
 export const IMAS_RESPONSIBLE:Record<string,string> = {supervisor:"FERNANDO DA ROSA - SUPERVISOR DE MANUTENÇÃO",hidraulica:"EVERSON VICENTE FERREIRA - BOMBEIRO HIDRÁULICO",refrigeracao:"FABRICIO RODRIGO DA SILVA - MECÂNICO DE REFRIGERAÇÃO",civil:"IVAN RIVALDIR DE SOUZA SANTOS - AUXILIAR DE MANUTENÇÃO"};
 export const APP_RESPONSIBLE:Record<string,string> = {...IMAS_RESPONSIBLE};
 export const isImasDate=(value:string)=>/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)&&Number.isFinite(Date.parse(value));
-export type ImasFields = {imasSystem?:string;imasSubject?:string;imasOpenedAt?:string;imasActivation?:string;imasClientReference?:string;imasOsNumber?:string;};
+export type ImasFields = {imasSystem?:string;imasSubject?:string;imasOpenedAt?:string;imasActivation?:string;imasClientReference?:string;imasOsNumber?:string;imasEquipmentCode?:string;imasEquipmentName?:string;};
 
 export const IMAS_EXECUTORS=Object.values(IMAS_RESPONSIBLE);
 export const imasExecutor=(value:string)=>IMAS_EXECUTORS.includes(value)?value:["FERNANDO DA ROSA - ELETROTÉCNICO","FERNANDO DA ROSA - SUPERVISOR"].includes(value)?IMAS_RESPONSIBLE.supervisor:"";

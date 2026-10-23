@@ -1,0 +1,10 @@
+"use client";
+import {useEffect,useState} from "react";
+import ReportEditor from "./ReportEditor";
+import type {ExportReport} from "./report-export";
+export default function LocalOrderQueue(){
+ const [reports,setReports]=useState<ExportReport[]>([]),[error,setError]=useState("");
+ async function load(){try{const response=await fetch("/api/reports",{cache:"no-store"});const data=await response.json();if(!response.ok)throw Error(data.error);setReports(data.reports.filter((r:ExportReport)=>r.origin==="app"&&!r.downloadedAt&&["Aguardando criação","Aguardando execução"].includes(r.status)));setError("");}catch{setError("Não foi possível atualizar as corretivas. Tente Atualizar fila.");}}
+ useEffect(()=>{void load();const refresh=()=>void load();const timer=window.setInterval(refresh,30000);window.addEventListener("focus",refresh);window.addEventListener("rco-imas-updated",refresh);return()=>{window.clearInterval(timer);window.removeEventListener("focus",refresh);window.removeEventListener("rco-imas-updated",refresh);};},[]);
+ return <section className="mx-auto max-w-2xl px-4 pt-6"><div className="flex items-center justify-between gap-3"><h2 className="text-xl font-bold">Fila de corretivas e testes</h2><button className="report-button" type="button" onClick={()=>void load()}>Atualizar fila</button></div>{error&&<p role="alert">{error}</p>}{!reports.length&&!error&&<p className="mt-2 text-sm">Nenhuma corretiva ou teste aguardando execução.</p>}<div className="mt-3 space-y-3">{reports.map(r=><article key={r.publicId} className="report-card"><h3 className="font-bold">{r.imasOsNumber?`OS ${r.imasOsNumber}`:r.osNumber}</h3><p className="mt-1 text-sm">{r.environment} · {r.floor}</p><p className="mt-2">{r.imasSubject||r.description}</p><p className="mt-2 text-sm font-semibold">{r.status==="Aguardando criação"?"Aguardando criação e número oficial do IMAS":"Criada no IMAS · pronta para registrar a execução"}</p>{r.status==="Aguardando execução"&&r.imasOsNumber&&<ReportEditor report={r} onSaved={load} buttonLabel="Abrir e encerrar OS"/>}</article>)}</div></section>;
+}

@@ -10,8 +10,8 @@ for(const role of ['supervisor','eletrica','hidraulica','refrigeracao','civil'])
   let view=role==='supervisor'?'assignments':'send',index=0;
   const exports={};
   const jsx=(type,props)=>({type,props});
-  const react={useEffect(){},useMemo:fn=>fn(),useState:initial=>{const i=index++;return [i<4?[role,view,[],''][i]:(typeof initial==='function'?initial():initial),value=>{if(i===1)view=value;}];}};
-  vm.runInNewContext(code,{exports,require:name=>name==='react'?react:name==='react/jsx-runtime'?{jsx,jsxs:jsx}:name==='./order-deadlines'?{saoPauloDate:()=> '2026-10-05'}:name==='lucide-react'?new Proxy({},{get:(_,key)=>String(key)}):{default:name},console});
+  const react={useEffect(){},useMemo:fn=>fn(),useState:initial=>{const i=index++;return [i<2?[role,view][i]:(typeof initial==='function'?initial():initial),value=>{if(i===1)view=value;}];}};
+  vm.runInNewContext(code,{exports,require:name=>name==='react'?react:name==='react/jsx-runtime'?{jsx,jsxs:jsx}:name==='./access'?{isOverviewRole:r=>r==='supervisor'||r==='engenheiro'}:name==='./order-deadlines'?{saoPauloDate:()=> '2026-10-05'}:name==='lucide-react'?new Proxy({},{get:(_,key)=>String(key)}):{default:name},console});
   const render=()=>{index=0;return descendants(exports.default());};
   const button=render().find(n=>n.type==='button'&&[n.props.children].flat(Infinity).includes(' Nova OS'));
   assert.ok(button,'Nova OS button must be reachable');button.props.onClick();assert.equal(view,'new');

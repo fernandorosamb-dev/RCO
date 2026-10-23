@@ -1,10 +1,15 @@
+import {normalizePreventiveSchedule} from "../../../preventive-schedule";
+import {isImasEquipmentCode,imasEquipmentName} from "../../../imas-equipments";
+import {plannedDateForOrder} from "../../../preventive-schedule-server";
+import {readRoleRoster} from "../../../role-roster-server";
+import {rosterExecutor,verifiedExecutor} from "../../../role-roster";
 import {submitToImas} from "../../../imas-intake";
 import {photoSubmission} from "../../../photo-policy";
 import {uploadedPhotos,clearUploadedPhotos} from "../../../uploaded-photos";
 import {env} from "cloudflare:workers";
 import {requireRole} from "../../../auth";
 import {IMAS_SYSTEMS,imasExecutor,isImasDate} from "../../../imas-config";
-import {normalizeSchedule} from "../../../imas-schedule";
+import {normalizeReportSchedule} from "../../../imas-schedule";
 import {hasValidLocation} from "../../../location-fields";
 
 export async function PATCH(request:Request) {
@@ -13,7 +18,9 @@ export async function PATCH(request:Request) {
     const role=await requireRole(["supervisor","eletrica","hidraulica","refrigeracao","civil"]);
     if(!role)return Response.json({error:"Faça login para corrigir OS enviadas."},{status:401});
     const data=await request.formData();const text=(key:string)=>String(data.get(key)||"").trim();const id=text("publicId");
-    const report=await env.DB.prepare("SELECT * FROM service_reports WHERE public_id = ?").bind(id).first<{origin:string;os_number:string;area:string;created_by_role:string;work_order_public_id:string|null;status:string;downloaded_at:number|null;imas_os_number:string;imas_opened_at:string;imas_activation:string;imas_client_reference:string}>();
+    const report=await env.DB.prepare("SELECT * FROM service_reports WHERE public_id = ?").bind(id).first<{origin:string;os_number:string;area:string;created_by_role:string;work_order_public_id:string|null;status:string;downloaded_at:number|null;imas_os_number:string;imas_opened_at:string;imas_activation:string;imas_client_reference:string;created_at:number}>();
+    if(report?.status==="Aguardando criação")return Response.json({error:"Aguarde a criação no IMAS e o retorno do número oficial antes de encerrar."},{status:409});
+    if(report?.status==="Excluída")return Response.json({error:"Esta OS foi rejeitada ou excluída. Envie um novo relatório pela fila de OS."},{status:409});
     if(!report)return Response.json({error:"OS não encontrada."},{status:404});
     if((await env.DB.prepare("SELECT state FROM imas_automation_requests WHERE report_public_id=?").bind(id).first<{state:string}>())?.state==="processing")return Response.json({error:"A OS está em processamento. Aguarde antes de editar."},{status:409});
     if(report.downloaded_at)return Response.json({error:"A OS já foi baixada. Restaure-a antes de corrigir."},{status:409});
@@ -22,11 +29,13 @@ export async function PATCH(request:Request) {
       const ownerArea=report.origin==="app"?report.area:(report.created_by_role||source?.assigned_area);
       if(ownerArea!==role)return Response.json({error:"Você só pode editar OS da sua equipe."},{status:403});
     }
-    const executor=imasExecutor(text("collaborator"));if(!executor)return Response.json({error:"Selecione um executor do cadastro IMAS."},{status:400});
-        const keys=["collaborator","executionStartedAt","completedAt","environment","floor","observations"];
-    if(keys.some(key=>!text(key)))return Response.json({error:"Preencha os campos obrigatórios."},{status:400});
+    const executor=rosterExecutor(text("collaborator"),await readRoleRoster());if(!executor)return Response.json({error:"Selecione um executor do cadastro IMAS."},{status:400});
+    const keys=["collaborator","executionStartedAt","completedAt","environment","floor","observations"];
+    if(keys.some(key=>!text(key)&&!(["executionStartedAt","completedAt"].includes(key)&&report.origin!=="app")))return Response.json({error:"Preencha os campos obrigatórios."},{status:400});
     if(!hasValidLocation(text("environment"),source?.unit||"")||!hasValidLocation(text("floor"),source?.unit||""))return Response.json({error:"Informe manualmente o Ambiente e o Pavimento corretos desta OS."},{status:400});
-    const schedule=isImasDate(text("executionStartedAt"))&&isImasDate(text("completedAt"))?normalizeSchedule(text("executionStartedAt"),text("completedAt"),report.imas_opened_at||""):null;
+    if(report.origin==="app"&&(!isImasDate(text("executionStartedAt"))||!isImasDate(text("completedAt"))))return Response.json({error:"Informe início e conclusão com data e hora válidas."},{status:400});
+    const plan=report.work_order_public_id?await plannedDateForOrder(report.work_order_public_id):null;
+    const schedule=report.origin!=="app"&&plan?normalizePreventiveSchedule(text("executionStartedAt"),text("completedAt"),plan.planned,plan.competence,report.imas_opened_at||""):normalizeReportSchedule(text("executionStartedAt"),text("completedAt"),report.imas_opened_at||"",typeof report.created_at==="number"?new Date(report.created_at):undefined);
     if(!schedule)return Response.json({error:"Informe início e conclusão com data e hora válidas."},{status:400});
     const opening=schedule.imasOpenedAt;
     if(text("observations").length>10000)return Response.json({error:"As observações ultrapassam 10 mil caracteres."},{status:400});
@@ -37,12 +46,13 @@ export async function PATCH(request:Request) {
     const files = await uploadedPhotos(data,role);
     if(keep.length+files.length<1)return Response.json({error:"Mantenha pelo menos 1 foto."},{status:400});
     if(files.some(file=>file.type!=="image/jpeg"||file.size>15_000))return Response.json({error:"As novas fotos devem estar comprimidas em JPEG."},{status:400});
+    if(report.origin==="app"&&!isImasEquipmentCode(text("imasEquipmentCode")))return Response.json({error:"Escolha o equipamento na lista do IMAS."},{status:400});
     if(report.origin==="app"&&(!["Corretiva","Teste de equipamento"].includes(text("activityType"))||!text("description")||!["eletrica","hidraulica","refrigeracao","civil"].includes(text("area"))||(text("activityType")==="Teste de equipamento"&&!text("equipment"))))return Response.json({error:"Confira o tipo, área, descrição e equipamento."},{status:400});
     if(report.origin==="app"&&(!(IMAS_SYSTEMS as readonly string[]).includes(text("imasSystem"))||!text("imasSubject")||text("imasSubject").length>500||!isImasDate(opening)||text("imasActivation").length>500||text("imasClientReference").length>100))return Response.json({error:"Confira os campos de criação no IMAS."},{status:400});
     const operations=[env.DB.prepare(`UPDATE service_reports SET collaborator=?, execution_started_at=?, completed_at=?, environment=?, floor=?, observations=? WHERE public_id=?`).bind(...keys.map(key=>key==="collaborator"?executor:key==="executionStartedAt"?schedule.executionStartedAt:key==="completedAt"?schedule.completedAt:text(key)),id)];
     if(report.origin==="app"){
       const area=role==="supervisor"?text("area"):report.area;
-      operations.push(env.DB.prepare("UPDATE service_reports SET activity_type=?, description=?, equipment=?, area=?, collaborator=?, imas_system=?, imas_subject=?, imas_opened_at=?, imas_activation=?, imas_client_reference=? WHERE public_id=?").bind(text("activityType"),text("description"),text("equipment"),area,executor,text("imasSystem"),text("imasSubject"),opening,report.imas_activation||"",report.imas_client_reference||"",id));
+      operations.push(env.DB.prepare("UPDATE service_reports SET activity_type=?, description=?, equipment=?, area=?, collaborator=?, imas_system=?, imas_subject=?, imas_opened_at=?, imas_activation=?, imas_client_reference=?, imas_equipment_code=?, imas_equipment_name=? WHERE public_id=?").bind(text("activityType"),text("description"),text("equipment"),area,executor,text("imasSystem"),text("imasSubject"),opening,report.imas_activation||"",report.imas_client_reference||"",text("imasEquipmentCode"),imasEquipmentName(text("imasEquipmentCode")),id));
     }
     for(const photo of previous.results)if(!keep.includes(photo.public_id))operations.push(env.DB.prepare("DELETE FROM report_photos WHERE public_id=? AND report_public_id=?").bind(photo.public_id,id));
     for(const file of files){const photoId=crypto.randomUUID();const key=`reports/${id}/${photoId}.jpg`;addedKeys.push(key);await env.BUCKET.put(key,await file.stream(),{httpMetadata:{contentType:"image/jpeg"}});operations.push(env.DB.prepare("INSERT INTO report_photos (public_id,report_public_id,object_key,file_name,content_type,created_at) VALUES (?,?,?,?,'image/jpeg',?)").bind(photoId,id,key,`OS-${report.os_number}-${photoId}.jpg`,Date.now()));}

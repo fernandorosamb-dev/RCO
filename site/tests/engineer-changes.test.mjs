@@ -9,15 +9,15 @@ import ts from 'typescript';
 const dir=mkdtempSync(join(tmpdir(),'rco-eng-'));after(()=>rmSync(dir,{recursive:true,force:true}));
 const db=new DatabaseSync(':memory:');
 for(const name of readdirSync(new URL('../drizzle/',import.meta.url)).filter(x=>x.endsWith('.sql')).sort())db.exec(readFileSync(new URL(`../drizzle/${name}`,import.meta.url),'utf8'));
-const env={DB:{prepare(sql){const direct={async first(){return db.prepare(sql).get()||null;},async all(){return {results:db.prepare(sql).all()};},async run(){const r=db.prepare(sql).run();return {meta:{changes:Number(r.changes)}};}};return {...direct,bind(...args){return {async first(){return db.prepare(sql).get(...args)||null;},async all(){return {results:db.prepare(sql).all(...args)};},async run(){const r=db.prepare(sql).run(...args);return {meta:{changes:Number(r.changes)}};},sql,args};}};},async batch(ops){db.exec('BEGIN');try{const rows=ops.map(op=>db.prepare(op.sql).run(...op.args));db.exec('COMMIT');return rows;}catch(e){db.exec('ROLLBACK');throw e;}}}};
+const env={DB:{prepare(sql){const direct={async first(){return db.prepare(sql).get()||null;},async all(){return {results:db.prepare(sql).all()};},async run(){const r=db.prepare(sql).run();return {meta:{changes:Number(r.changes)}};}};return {...direct,bind(...args){return {async first(){return db.prepare(sql).get(...args)||null;},async all(){return {results:db.prepare(sql).all(...args)};},async run(){const r=db.prepare(sql).run(...args);return {meta:{changes:Number(r.changes)}};},sql,args};}};},async batch(ops){const hook=globalThis.__beforeEngineerBatch;globalThis.__beforeEngineerBatch=null;hook?.();db.exec('BEGIN');try{const rows=ops.map(op=>db.prepare(op.sql).run(...op.args));db.exec('COMMIT');return rows.map(r=>({meta:{changes:Number(r.changes)}}));}catch(e){db.exec('ROLLBACK');throw e;}}}};
 let role='engenheiro';const calls=[];
 globalThis.__eng={env,async requireRole(a){return a.includes(role)?role:null;},calls};
 writeFileSync(join(dir,'host.mjs'),'export const env=globalThis.__eng.env;export const requireRole=globalThis.__eng.requireRole;');
 writeFileSync(join(dir,'stubs.mjs'),'const c=globalThis.__eng.calls;export const GET=async()=>Response.json({reports:[{publicId:"e4",photos:[{publicId:"p1"}]}]});export const POST=async(req)=>{c.push(await req.json());return Response.json({message:"ok"});};export const approvalFingerprint=async()=>"fp";');
 const map=[[/"cloudflare:workers"/g,'"./host.mjs"'],[/"(?:\.\.\/)+auth"/g,'"./host.mjs"'],[/"(?:\.\.\/)+imas-config"/g,'"./imas-config.mjs"'],[/"(?:\.\.\/)+imas-schedule"/g,'"./imas-schedule.mjs"'],[/"(?:\.\.\/)+location-fields"/g,'"./location-fields.mjs"'],[/"(?:\.\.\/)+report-actions"/g,'"./report-actions.mjs"'],[/"\.\.\/\.\.\/route"/g,'"./stubs.mjs"'],[/"(?:\.\.\/)+imas\/approve\/route"/g,'"./stubs.mjs"'],[/"(?:\.\.\/)+return\/route"/g,'"./stubs.mjs"'],[/"(?:\.\.\/)+imas-approval"/g,'"./stubs.mjs"'],[/"\.\/imas-config"/g,'"./imas-config.mjs"'],[/"\.\/imas-schedule"/g,'"./imas-schedule.mjs"'],[/"\.\/location-fields"/g,'"./location-fields.mjs"']];
-for(const [name,path] of [['imas-config','../app/imas-config.ts'],['imas-schedule','../app/imas-schedule.ts'],['location-fields','../app/location-fields.ts'],['report-actions','../app/report-actions.ts'],['proposals','../app/api/reports/proposals/route.ts'],['decide','../app/api/reports/proposals/decide/route.ts'],['reject','../app/api/reports/reject/route.ts'],['batch','../app/api/imas/batch-request/route.ts']]){
+for(const [name,path] of [['role-roster-server','../app/role-roster-server.ts'],['role-roster','../app/role-roster.ts'],['preventive-schedule-server','../app/preventive-schedule-server.ts'],['preventive-schedule','../app/preventive-schedule.ts'],['maintenance-plan','../app/maintenance-plan.ts'],['imas-config','../app/imas-config.ts'],['imas-schedule','../app/imas-schedule.ts'],['location-fields','../app/location-fields.ts'],['report-actions','../app/report-actions.ts'],['proposals','../app/api/reports/proposals/route.ts'],['decide','../app/api/reports/proposals/decide/route.ts'],['reject','../app/api/reports/reject/route.ts'],['batch','../app/api/imas/batch-request/route.ts']]){
  let source=readFileSync(new URL(path,import.meta.url),'utf8');for(const [a,b] of map)source=source.replace(a,b);
- writeFileSync(join(dir,name+'.mjs'),ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
+ writeFileSync(join(dir,name+'.mjs'),ts.transpileModule(source.replace(/"(?:\.\.?\/)+(role-roster-server|role-roster|preventive-schedule-server|preventive-schedule|maintenance-plan)"/g,'"./$1.mjs"'),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
 }
 const imp=n=>import(pathToFileURL(join(dir,n+'.mjs')));
 const proposals=await imp('proposals'),decide=await imp('decide'),reject=await imp('reject'),batch=await imp('batch'),actions=await imp('report-actions');
@@ -77,7 +77,28 @@ test('rejeitar OS nova do app exclui e não cria; OS do IMAS zera e volta à fil
 test('pedido de lote do engenheiro: um só pedido, supervisor pega uma vez',async()=>{
   role='engenheiro';assert.equal((await post(batch,{month:'2026-10'})).status,201);await post(batch,{month:'2026-10'});
   assert.equal(db.prepare("SELECT count(*) n FROM batch_requests").get().n,1);assert.equal((await post(batch,{month:'xx'})).status,400);
-  role='supervisor';const got=await (await batch.GET()).json();assert.equal(got.request.month,'2026-10');
-  assert.equal((await post(batch,{id:got.request.id},'PATCH')).status,200);assert.equal((await post(batch,{id:got.request.id},'PATCH')).status,409);assert.equal((await (await batch.GET()).json()).request,null);
+  role='supervisor';const got=await (await batch.GET()).json();assert.equal(got.requests[0].month,'2026-10');assert.equal(db.prepare("SELECT state FROM batch_requests").get().state,'authorized');assert.equal(got.requests[0].authorized,true);assert.equal((await post(batch,{id:got.requests[0].id},'PATCH')).status,400);
+  assert.equal((await post(batch,{id:got.requests[0].id,decision:'apply'},'PATCH')).status,200);assert.equal((await post(batch,{id:got.requests[0].id,decision:'apply'},'PATCH')).status,409);assert.equal((await (await batch.GET()).json()).requests.length,0);
   role='engenheiro';assert.equal((await batch.GET()).status,403);
+});
+
+test('supervisor recusa lote e pedido vencido não é executável',async()=>{
+ role='engenheiro';await post(batch,{month:'2026-11'});role='supervisor';const id=(await(await batch.GET()).json()).requests[0].id;
+ assert.equal((await post(batch,{id,decision:'dismiss'},'PATCH')).status,200);assert.equal((await post(batch,{id,decision:'apply'},'PATCH')).status,409);
+ role='engenheiro';await post(batch,{month:'2026-12'});db.prepare("UPDATE batch_requests SET created_at=1 WHERE month='2026-12'").run();role='supervisor';
+ assert.equal((await(await batch.GET()).json()).requests.length,0);const expired=db.prepare("SELECT public_id FROM batch_requests WHERE month='2026-12'").get().public_id;
+ assert.equal((await post(batch,{id:expired,decision:'apply'},'PATCH')).status,409);
+});
+
+test('claim concorrente impede rejeição e edição sem excluir ou alterar a OS',async()=>{
+ seed('race-reject','app');role='supervisor';
+ globalThis.__beforeEngineerBatch=()=>db.prepare("INSERT INTO imas_automation_requests VALUES ('race-reject','rq-race-reject','','processing',1,1)").run();
+ assert.equal((await post(reject,{publicId:'race-reject'})).status,409);
+ assert.equal(db.prepare("SELECT status FROM service_reports WHERE public_id='race-reject'").get().status,'Concluída');
+ assert.equal(db.prepare("SELECT state FROM imas_automation_requests WHERE report_public_id='race-reject'").get().state,'processing');
+ seed('race-edit');role='engenheiro';await post(proposals,{publicId:'race-edit',action:'edit',fields:{observations:'Novo texto'}});
+ const pr=state('race-edit')[0];role='supervisor';
+ globalThis.__beforeEngineerBatch=()=>db.prepare("INSERT INTO imas_automation_requests VALUES ('race-edit','rq-race-edit','','processing',1,1)").run();
+ assert.equal((await post(decide,{publicId:pr.public_id,decision:'apply'})).status,409);
+ assert.equal(db.prepare("SELECT observations FROM service_reports WHERE public_id='race-edit'").get().observations,'Serviço feito');
 });

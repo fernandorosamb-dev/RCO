@@ -1,3 +1,6 @@
+import {readRoleRoster} from "./role-roster-server";
+import {verifiedExecutor} from "./role-roster";
+import {plannedDateForOrder} from "./preventive-schedule-server";
 import {env} from "cloudflare:workers";
 import {imasJob} from "./imas-jobs";
 import {approvalFingerprint} from "./imas-approval";
@@ -10,7 +13,8 @@ export async function submitToImas(publicId:string){
   const camel=(record:Record<string,unknown>)=>Object.fromEntries(Object.entries(record).map(([key,value])=>[key.replace(/_([a-z])/g,(_,letter)=>letter.toUpperCase()),value]));
   const photos=await env.DB.prepare("SELECT public_id,file_name FROM report_photos WHERE report_public_id=? ORDER BY created_at,id").bind(publicId).all<{public_id:string;file_name:string}>();
   const order=row.work_order_public_id?await env.DB.prepare("SELECT assigned_area,unit,description,equipment FROM work_orders WHERE public_id=?").bind(row.work_order_public_id).first<Record<string,unknown>>():null;
-  const report={...camel(row),workOrder:order?camel(order):null,photos:photos.results.map(p=>({publicId:p.public_id,fileName:p.file_name,url:`/api/photos/${p.public_id}`}))} as ExportReport;
+  const plan=row.work_order_public_id?await plannedDateForOrder(String(row.work_order_public_id)):null;
+  const report={...camel(row),executorImasName:verifiedExecutor(String(row.collaborator),await readRoleRoster()),workOrder:order?{...camel(order),plannedExecutionAt:plan?.planned,competence:plan?.competence}:null,photos:photos.results.map(p=>({publicId:p.public_id,fileName:p.file_name,url:`/api/photos/${p.public_id}`}))} as ExportReport;
   const job=imasJob(report),now=Date.now(),fingerprint=await approvalFingerprint(report);
   const state=job.ready?'queued':'review';
   const result=await env.DB.prepare("INSERT INTO imas_automation_requests (report_public_id,request_id,fingerprint,state,requested_at,updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT(report_public_id) DO UPDATE SET request_id=excluded.request_id,fingerprint=excluded.fingerprint,state=excluded.state,requested_at=excluded.requested_at,updated_at=excluded.updated_at WHERE imas_automation_requests.state<>'processing'").bind(publicId,crypto.randomUUID(),fingerprint,state,now,now).run();

@@ -19,14 +19,14 @@ const request=()=>new Request('https://example.test/api/reports/downloaded',{met
 
 test('only supervisor can mark an existing OS as downloaded',async()=>{
   for(const role of [null,'eletrica','hidraulica','refrigeracao','civil']){const app=setup(role);assert.equal((await app.patch(request())).status,403);assert.equal(app.writes.length,0);}
-  const supervisor=setup('supervisor');assert.equal((await supervisor.patch(request())).status,200);assert.equal(supervisor.writes.length,1);assert.match(supervisor.writes[0].sql,/downloaded_at/);
+  const supervisor=setup('supervisor');assert.equal((await supervisor.patch(request())).status,200);assert.equal(supervisor.writes.length,2);assert.match(supervisor.writes[1].sql,/imas_automation_requests/);assert.match(supervisor.writes[0].sql,/downloaded_at/);
 });
 
 test('does not write when OS is missing',async()=>{const app=setup('supervisor',false);assert.equal((await app.patch(request())).status,404);assert.equal(app.writes.length,0);});
 
 test('OS criada no app sem número oficial do IMAS não pode ser baixada',async()=>{
   for(const number of ['', 'APP-20261001-4E9BD0D3', '0', 'erro']){const app=setup('supervisor',true,{origin:'app',imas_os_number:number,status:'Concluída'});assert.equal((await app.patch(request())).status,409);assert.equal(app.writes.length,0);}
-  const linked=setup('supervisor',true,{origin:'app',imas_os_number:'323902',status:'Concluída'});assert.equal((await linked.patch(request())).status,200);assert.equal(linked.writes.length,1);assert.equal(linked.writes[0].args[2],'323902');
+  const linked=setup('supervisor',true,{origin:'app',imas_os_number:'323902',status:'Concluída'});assert.equal((await linked.patch(request())).status,200);assert.equal(linked.writes.length,2);assert.equal(linked.writes[0].args[2],'323902');
 });
 test('OS excluída ou vínculo alterado durante a baixa não retorna sucesso',async()=>{
  const excluded=setup('supervisor',true,{origin:'app',imas_os_number:'323902',status:'Excluída'});assert.equal((await excluded.patch(request())).status,409);assert.equal(excluded.writes.length,0);

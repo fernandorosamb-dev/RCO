@@ -4,7 +4,7 @@ export type ImportArea = typeof importAreas[number];
 export type ImportedOrder = { osNumber: string; client: string; unit: string; environment: string; floor: string; openedAt: string; dueAt: string; originalStatus: string; description: string; equipment: string; importedText: string };
 export type AssignmentHistory = { unit: string; equipment: string; assignedArea: string; assignedResponsible: string };
 export const responsibleByArea: Record<string, string> = {
-  eletrica: "FERNANDO DA ROSA - SUPERVISOR",
+  eletrica: "Allan dos Santos Benides - Eletrotécnico",
   hidraulica: "EVERSON VICENTE FERREIRA - BOMBEIRO HIDRÁULICO",
   refrigeracao: "FABRICIO RODRIGO DA SILVA - MECÂNICO DE REFRIGERAÇÃO",
   civil: "IVAN RIVALDIR DE SOUZA SANTOS - AUXILIAR DE MANUTENÇÃO",

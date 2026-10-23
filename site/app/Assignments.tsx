@@ -2,19 +2,21 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ExternalLink, FileUp, Loader2, MapPin, RefreshCw, Search } from "lucide-react";
-import { responsibleByArea } from "./os-import";
+import {useRoleRoster} from "./useRoleRoster";
+import RoleResponsibles from "./RoleResponsibles";
 import { saoPauloDate, formatPlanDate } from "./order-deadlines";
 
 export type WorkOrder = {
   publicId: string; importPublicId: string | null; competence: string; osNumber: string; client: string; unit: string;
   environment: string; floor: string; openedAt: string; dueAt: string; originalStatus: string; description: string;
-  plannedExecutionAt?: string; executionStartedAt?: string; completedAt?: string; equipment: string; assignedArea: string; assignedResponsible: string; status: string;
+  originalPlannedExecutionAt?:string; scheduleRevision?:number; rescheduled?:{reason:string;changedByRole:string;updatedAt:number}; plannedExecutionAt?: string; executionStartedAt?: string; completedAt?: string; equipment: string; assignedArea: string; assignedResponsible: string; status: string;
 };
 
 const areaOptions = [["eletrica", "Elétrica"], ["hidraulica", "Hidráulica"], ["refrigeracao", "Refrigeração"], ["civil", "Civil"]] as const;
 type ImportResult = { imported: number; created: number; updated: number; duplicateCount: number; distributed: Record<string,number>; pending: { osNumber: string; reason: string }[]; excluded: { osNumber: string; unit: string }[] };
 
 export default function Assignments({readOnly=false}:{readOnly?:boolean}) {
+  const {names}=useRoleRoster();
   const [orders, setOrders] = useState<WorkOrder[]>([]); const [result, setResult] = useState<ImportResult|null>(null);
   const [file, setFile] = useState<File | null>(null); const [competence, setCompetence] = useState(() => saoPauloDate().slice(0, 7));
   const [query, setQuery] = useState(""); const [busy, setBusy] = useState(false); const [message, setMessage] = useState("");
@@ -27,6 +29,7 @@ export default function Assignments({readOnly=false}:{readOnly?:boolean}) {
     const fixResponse = await fetch("/api/reports/fix-legacy-locations", { cache: "no-store", signal });
     if (fixResponse.ok && !signal?.aborted) setLocationFixPending(Number((await fixResponse.json()).pending || 0));
   }
+  useEffect(()=>{const refresh=()=>void load();window.addEventListener("rco-roster-updated",refresh);return()=>window.removeEventListener("rco-roster-updated",refresh);},[competence,readOnly]);
   useEffect(() => { const controller=new AbortController(); void load(controller.signal).catch(()=>{}); return()=>controller.abort(); }, [competence]);
 
   async function importOrders() {
@@ -85,7 +88,7 @@ export default function Assignments({readOnly=false}:{readOnly?:boolean}) {
   const visible = useMemo(() => orders.filter((order) => !query || [order.osNumber, order.assignedResponsible, order.description].some((value) => value.toLowerCase().includes(query.toLowerCase()))).sort((a,b)=>a.osNumber.localeCompare(b.osNumber,"pt-BR",{numeric:true})), [orders, query]);
 
   return <section className="mx-auto max-w-6xl px-4 py-6 sm:py-10">
-    <div className="mb-5"><span className="eyebrow">{readOnly?"Somente leitura":"Supervisor"}</span><h2 className="mt-2 text-2xl font-bold">{readOnly?"Distribuição das OS":"Importar e distribuir OS"}</h2>{!readOnly&&<p className="mt-1 text-slate-600">Selecione o mês e envie o PDF completo. O aplicativo lê, separa por cargo e disponibiliza as OS automaticamente.</p>}</div>
+    {!readOnly&&<RoleResponsibles/>}<div className="mb-5"><span className="eyebrow">{readOnly?"Somente leitura":"Supervisor"}</span><h2 className="mt-2 text-2xl font-bold">{readOnly?"Distribuição das OS":"Importar e distribuir OS"}</h2>{!readOnly&&<p className="mt-1 text-slate-600">Selecione o mês e envie o PDF completo. O aplicativo lê, separa por cargo e disponibiliza as OS automaticamente.</p>}</div>
     <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 sm:p-6">
       <div className="grid gap-4 sm:grid-cols-[180px_1fr]"><label className="field"><span>Competência</span><input disabled={busy} type="month" value={competence} onChange={(e)=>{setCompetence(e.target.value);setResult(null);setMessage("")}}/></label>{!readOnly&&<label className="field"><span>PDF completo das OS</span><input ref={fileInput} disabled={busy} type="file" accept="application/pdf" onChange={event=>{setFile(event.target.files?.[0]||null);setResult(null);setMessage("")}}/></label>}</div>
       {!readOnly&&locationFixPending > 0 && <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 p-3"><p className="text-sm font-bold text-amber-950">{locationFixPending} OS com local pendente ou incorreto.</p><button disabled={busy} className="report-button" onClick={fixImportedLocations}><MapPin size={18}/>Corrigir locais pelo equipamento</button></div>}
@@ -95,12 +98,12 @@ export default function Assignments({readOnly=false}:{readOnly?:boolean}) {
 
     </div>
     <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h3 className="text-xl font-black">OS cadastradas</h3><p className="text-sm text-slate-500">Da menor para a maior.</p></div><label className="search"><Search size={18}/><input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="Buscar número ou responsável"/></label></div>
-    <div className="mt-4 space-y-3">{visible.length===0?<div className="empty"><RefreshCw/><p>Nenhuma OS importada.</p></div>:visible.map((order)=><AssignmentRow key={order.publicId} order={order} onSave={assign} readOnly={readOnly}/>)}</div>
+    <div className="mt-4 space-y-3">{visible.length===0?<div className="empty"><RefreshCw/><p>Nenhuma OS importada.</p></div>:visible.map((order)=><AssignmentRow key={order.publicId} order={order} onSave={assign} readOnly={readOnly} responsibleByArea={names}/>)}</div>
   </section>;
 }
 
-function AssignmentRow({order,onSave,readOnly=false}:{order:WorkOrder;onSave:(order:WorkOrder,area:string,responsible:string)=>void;readOnly?:boolean}) {
+function AssignmentRow({order,onSave,readOnly=false,responsibleByArea}:{responsibleByArea:Record<string,string>;order:WorkOrder;onSave:(order:WorkOrder,area:string,responsible:string)=>void;readOnly?:boolean}) {
   const [area,setArea]=useState(order.assignedArea); const [responsible,setResponsible]=useState(order.assignedResponsible);
   useEffect(()=>{setArea(order.assignedArea);setResponsible(order.assignedResponsible)},[order]);
-  return <article className="assignment-card"><div><div className="flex flex-wrap items-center gap-2"><b>OS {order.osNumber}</b><span className={`order-status ${order.status === "Concluída" ? "done" : ""}`}>{order.status}</span>{order.importPublicId&&<a className="inline-flex items-center gap-1 text-xs font-bold text-blue-800" href={`/api/os-imports/${order.importPublicId}`}><ExternalLink size={13}/>PDF original</a>}</div><p>{order.description || order.equipment || "Dados completos disponíveis no PDF"}</p>{!order.assignedArea&&<p className="font-bold text-amber-900">Cargo não identificado — escolha a área para disponibilizar.</p>}<small>{order.environment} · {order.floor}</small><p className="font-semibold text-blue-950">Execução programada: {formatPlanDate(order.plannedExecutionAt || "")}</p></div>{readOnly?<div><p>{areaOptions.find(([value])=>value===order.assignedArea)?.[1]||"Sem área"}</p><p>{order.assignedResponsible||"Responsável não atribuído"}</p></div>:<><select value={area} onChange={(e)=>{setArea(e.target.value);setResponsible(responsibleByArea[e.target.value]||"")}}><option value="">Escolher área</option>{areaOptions.map(([value,label])=><option value={value} key={value}>{label}</option>)}</select><input aria-label={`Responsável da OS ${order.osNumber}`} value={responsible} onChange={(e)=>setResponsible(e.target.value)} placeholder="Nome do responsável"/><button disabled={!area||order.status==="Concluída"} onClick={()=>onSave(order,area,responsible)} className="icon-save" aria-label={`Salvar atribuição da OS ${order.osNumber}`}><Check/></button></>}</article>;
+  return <article className="assignment-card"><div><div className="flex flex-wrap items-center gap-2"><b>OS {order.osNumber}</b><span className={`order-status ${order.status === "Concluída" ? "done" : ""}`}>{order.status}</span>{order.importPublicId&&<a className="inline-flex items-center gap-1 text-xs font-bold text-blue-800" href={`/api/os-imports/${order.importPublicId}`}><ExternalLink size={13}/>PDF original</a>}</div><p>{order.description || order.equipment || "Dados completos disponíveis no PDF"}</p>{!order.assignedArea&&<p className="font-bold text-amber-900">Cargo não identificado — escolha a área para disponibilizar.</p>}<small>{order.environment} · {order.floor}</small><p className="font-semibold text-blue-950">Execução programada: {formatPlanDate(order.plannedExecutionAt || "")}</p></div>{readOnly?<div><p>{areaOptions.find(([value])=>value===order.assignedArea)?.[1]||"Sem área"}</p><p>{order.assignedResponsible||"Responsável não atribuído"}</p></div>:<><select value={area} onChange={(e)=>{setArea(e.target.value);setResponsible(responsibleByArea[e.target.value]||"")}}><option value="">Escolher área</option>{areaOptions.map(([value,label])=><option value={value} key={value}>{label}</option>)}</select><input readOnly aria-label={`Responsável do cargo da OS ${order.osNumber}`} value={responsibleByArea[area]||responsible} placeholder="Cadastre o responsável acima"/><button disabled={!area||order.status==="Concluída"} onClick={()=>onSave(order,area,responsibleByArea[area]||responsible)} className="icon-save" aria-label={`Salvar atribuição da OS ${order.osNumber}`}><Check/></button></>}</article>;
 }

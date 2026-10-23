@@ -1,12 +1,54 @@
+PUBLICAÇÃO 2026-10-23.139
+- Equipamento: lista pesquisável com os 272 equipamentos do IMAS. Obrigatório em Nova OS e na correção/relato do colaborador. Gravado em imasEquipmentCode/imasEquipmentName (migração 0018, valor padrão vazio, nada apagado). OS corretiva sem equipamento mostra FALTA EQUIPAMENTO e não entra na fila.
+- Botões visíveis na Revisão da OS: "Reabrir OS — voltar à fila de encerramento" e "Já está OK no IMAS — encerrar no RCO" (mesma lógica da v138, antes escondida em "Status / opções").
+- Correção de contraste: o tema escuro não tinha regra para bg-cyan-50 (Revisão da OS), deixando texto claro sobre fundo claro.
+- Testes ajustados para exigir equipamento. Mesmas falhas que já existiam na v138 (imas-flow e local-orders) por limitação do ambiente; sem build de produção aqui.
 
-[2026-10-13] Acompanhamento: abas "Preventivas (IMAS)" e "Corretivas (criadas no app)".
- - Preventivas = OS importadas do IMAS (comportamento anterior, sem mudança).
- - Corretivas = OS criadas no app (inclui teste de equipamento), com contadores: Aguardando IMAS / Criada no IMAS / Encerrada / Devolvida. Mês pela data da execução.
- - Arquivo alterado: app/Dashboard.tsx (somente tela; sem mudança de banco ou API).
+CORREÇÃO v138 — FORÇAR FECHAMENTO
+O Supervisor confirma que já encerrou no IMAS. O botão registra a baixa SOMENTE NO RCO, retira da fila/revisão e mostra Concluída. Não executa automação, não abre IMAS e não envia fotos. Encerrado no IMAS tem a mesma função. Voltar à fila continua destinado à automação. Inclui auditoria manual e validações de número, dados/fotos e concorrência.
 
-21/10/2026 — PAINEL "AUTOMAÇÃO IMAS" (supervisor, aba Acompanhamento)
-- Novo componente app/AutomacaoPanel.tsx, incluído em app/page.tsx.
-- Botões: Criar OS corretivas · Concluir OS corretivas · Concluir preventivas liberadas · Auditoria do processo (erros da extensão) · Forçar fechamento (escolhe a OS).
-- Eles só disparam eventos (rco-imas-run-create/corrective/preventive, rco-imas-force) que a extensão 3.0.0+ executa. Nada roda sozinho. Sem a extensão 3.0.0 os botões não fazem nada.
-- Não altera banco, API nem contrato (schema 1). Prompt de ajustes maiores (Erro do IMAS separado, Equipamento): PROMPT_GPT_APROVACAO_E_EQUIPAMENTO.md.
-- Validação: só checagem de sintaxe TypeScript aqui (react/npm indisponíveis neste ambiente). Rodar build/testes antes de publicar.
+A descrição de Forçar fechamento na v137 abaixo foi substituída por esta correção.
+
+RCO — ajuste de fluxo — appVersion 2026-10-21.137
+
+NOVAS CORRETIVAS E TESTES
+1. Nova OS solicita criação no IMAS, sem exigir fotos do serviço ainda não executado.
+2. O retorno do número oficial muda para Aguardando execução.
+3. A fila de OS do colaborador mostra a OS oficial e Abrir e encerrar OS.
+4. O mesmo relatório recebe execução, observação e fotos; só então entra no encerramento.
+5. Nenhuma baixa pode ocorrer enquanto faltar essa entrega.
+6. Relatórios antigos mantêm o fluxo anterior; não foram reenviados ou migrados.
+
+REVISÃO E ERROS
+- Aprovação ligada à impressão dos dados e fotos é preservada em falha técnica ou timeout.
+- Conteúdo já aprovado não volta à Revisão. O filtro Erro do IMAS o separa.
+- Forçar fechamento recoloca só a OS aprovada e solicita a execução pela extensão existente.
+- Dados alterados exigem conferência; execução concorrente e OS protegidas permanecem bloqueadas.
+- Flag Voltar à fila: novo pedido sem nova aprovação de conteúdo.
+- Flag Encerrado no IMAS: o Supervisor confirma que verificou dados/fotos/status e registra a baixa.
+- Não há verificação independente do IMAS pelo servidor: o flag é a confirmação do Supervisor.
+
+SIMPLIFICAÇÃO
+- Retirado o comando duplicado Executar todas as OS do mês dos Relatórios (Supervisor e Engenheiro).
+- Removidos fotos, relato de serviço já executado e controles de envio de evidência da criação inicial.
+- Retirado o botão duplicado Aprovar dentro da revisão expandida.
+- Revisar OS virou uma opção de seleção; ações de status ficam recolhidas.
+- Painel Automação IMAS concentra criação individual, encerramento de preventivas, corretivas, fila e auditoria.
+- Na fila de encerramento, preventivas são enviadas primeiro.
+- Mantidos cadastros, responsáveis por cargo, documentos, fotos e histórico.
+
+EXTENSÃO
+- A extensão instalada não foi substituída. O pacote recebido contém fonte antiga 2.1.72.
+- Mantidos schema 1, versão mínima 2.3.0 e eventos existentes.
+- O painel usa rco-imas-create-save na criação individual e rco-imas-batch no encerramento.
+- Após vincular uma criação do novo fluxo, o servidor recusa qualquer encerramento automático imediato.
+- A etapa real de clique/salvamento no IMAS não pôde ser auditada neste ambiente.
+
+VALIDAÇÃO
+- Suite dirigida de alterações: 139 testes aprovados.
+- Contrato, executor, rastreamento e baixa: 12 testes aprovados.
+- Ciclo adicional criação -> execução -> baixa: incluído na suite dirigida.
+- Prévia visual dos componentes usando dados fictícios; nenhum teste de interface foi conectado ao IMAS.
+- Build de produção e verificação dos arquivos da extensão preservada.
+- Suite ampla, antes dos últimos reparos de testes: 303/326 passaram. Falhas adicionais em mocks antigos de upload, cadastros, navegação e renderização Cloudflare não foram resolvidas nesta publicação. Não foi alegada aprovação da suite inteira.
+- Typecheck global possui pendências anteriores de tipos Cloudflare e Readings; build de produção é verificado separadamente.

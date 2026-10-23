@@ -1,3 +1,5 @@
+import {readRoleRoster} from "../../role-roster-server";
+import {rosterNames} from "../../role-roster";
 import { and, asc, desc, eq, ne } from "drizzle-orm";
 import { env } from "cloudflare:workers";
 import { getDb } from "../../../db";
@@ -13,6 +15,7 @@ export async function GET(request: Request) {
   try {
     const role = await requireRole(["supervisor","engenheiro", ...areas]);
     if (!role) return Response.json({ error: "Faça login." }, { status: 401 });
+    const names=rosterNames(await readRoleRoster());
     const db = getDb();
     const [latest] = await db.select({ competence: workOrders.competence }).from(workOrders).orderBy(desc(workOrders.competence)).limit(1);
     const requestedCompetence = new URL(request.url).searchParams.get("competence") || "";
@@ -26,10 +29,12 @@ export async function GET(request: Request) {
       originalStatus: workOrders.originalStatus, description: workOrders.description, equipment: workOrders.equipment,
       assignedArea: workOrders.assignedArea, assignedResponsible: workOrders.assignedResponsible, status: workOrders.status,
     }).from(workOrders).where(scope).orderBy(asc(workOrders.osNumber));
-    const returns = rows.length ? await db.select({ workOrderPublicId: serviceReports.workOrderPublicId, executionStartedAt: serviceReports.executionStartedAt, completedAt: serviceReports.completedAt }).from(serviceReports).innerJoin(workOrders, eq(serviceReports.workOrderPublicId, workOrders.publicId)).where(scope).orderBy(desc(serviceReports.createdAt)) : [];
+    const returns = rows.length ? await db.select({ workOrderPublicId: serviceReports.workOrderPublicId, executionStartedAt: serviceReports.executionStartedAt, completedAt: serviceReports.completedAt }).from(serviceReports).innerJoin(workOrders, eq(serviceReports.workOrderPublicId, workOrders.publicId)).where(and(scope, ne(serviceReports.status,"Excluída"))).orderBy(desc(serviceReports.createdAt)) : [];
+    const schedules=rows.length?await env.DB.prepare("SELECT * FROM work_order_schedule").all<{work_order_public_id:string;original_date:string;execution_date:string;reason:string;changed_by_role:string;revision:number;updated_at:number}>():{results:[]};
+    const scheduleByOrder=new Map(schedules.results.map(row=>[row.work_order_public_id,row]));
     const executionByOrder = new Map<string, typeof returns[number]>();
     for (const report of returns) if (report.workOrderPublicId && !executionByOrder.has(report.workOrderPublicId)) executionByOrder.set(report.workOrderPublicId, report);
-    return Response.json({ competence: latestCompetence, workOrders: rows.map(row => ({ ...row, plannedExecutionAt: effectiveExecutionDate(row.competence, row.osNumber, row.assignedArea, row.status), executionStartedAt: executionByOrder.get(row.publicId)?.executionStartedAt || "", completedAt: executionByOrder.get(row.publicId)?.completedAt || "" })) }, { headers: { "Cache-Control": "private, no-store" } });
+    return Response.json({ competence: latestCompetence, workOrders: rows.map(row => ({ ...row, originalAssignedResponsible:row.assignedResponsible,assignedResponsible:names[row.assignedArea]||row.assignedResponsible, plannedExecutionAt: scheduleByOrder.get(row.publicId)?.execution_date||effectiveExecutionDate(row.competence, row.osNumber, row.assignedArea, row.status), originalPlannedExecutionAt:scheduleByOrder.get(row.publicId)?.original_date||effectiveExecutionDate(row.competence,row.osNumber,row.assignedArea,row.status),scheduleRevision:scheduleByOrder.get(row.publicId)?.revision||0,rescheduled:scheduleByOrder.has(row.publicId)?{reason:scheduleByOrder.get(row.publicId)!.reason,changedByRole:scheduleByOrder.get(row.publicId)!.changed_by_role,updatedAt:scheduleByOrder.get(row.publicId)!.updated_at}:undefined, executionStartedAt: executionByOrder.get(row.publicId)?.executionStartedAt || "", completedAt: executionByOrder.get(row.publicId)?.completedAt || "" })) }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Erro ao carregar as OS." }, { status: 500 });
   }
@@ -58,6 +63,7 @@ export async function POST(request: Request) {
     const hash=Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",bytes)),byte=>byte.toString(16).padStart(2,"0")).join("");
     const importPublicId=`import-${competence}-${hash}`;
     const objectKey=`os-imports/${competence}/${hash}.pdf`;
+    const names=rosterNames(await readRoleRoster());
     const db=getDb();
     const [existing,previous]=await Promise.all([
       db.select({publicId:workOrders.publicId,osNumber:workOrders.osNumber,assignedArea:workOrders.assignedArea,assignedResponsible:workOrders.assignedResponsible,status:workOrders.status,environment:workOrders.environment,floor:workOrders.floor}).from(workOrders).where(eq(workOrders.competence,competence)),
@@ -74,7 +80,7 @@ export async function POST(request: Request) {
       const current=existingByNumber.get(order.osNumber);
       const inferred=classifyOrder(order,history);
       const assignedArea=current?.assignedArea || inferred.assignedArea;
-      const assignedResponsible=current?.assignedResponsible || (current?.assignedArea?responsibleByArea[current.assignedArea]:inferred.assignedResponsible) || (assignedArea?responsibleByArea[assignedArea]:"");
+      const assignedResponsible=names[assignedArea]||current?.assignedResponsible||inferred.assignedResponsible||"";
       const status=current?.status==="Concluída"?"Concluída":current?.status && current.status!=="Atribuir"?current.status:/conclu[ií]da/i.test(order.originalStatus)?"Concluída":assignedArea?"Atribuída":"Atribuir";
       if(assignedArea)distributed[assignedArea]=(distributed[assignedArea]||0)+1;else pending.push({osNumber:order.osNumber,reason:inferred.reason});
       if(current)updated++;else created++;
@@ -104,11 +110,12 @@ export async function PATCH(request: Request) {
     if (!await requireRole(["supervisor"])) return Response.json({ error: "Acesso restrito." }, { status: 403 });
     const body = await request.json() as { publicId?: string; assignedArea?: string; assignedResponsible?: string };
     if (!body.publicId || !areas.includes(body.assignedArea as Area)) return Response.json({ error: "Selecione uma área responsável." }, { status: 400 });
+    const names=rosterNames(await readRoleRoster());
     const db = getDb();
     const [current] = await db.select().from(workOrders).where(eq(workOrders.publicId,body.publicId)).limit(1);
     if (!current) return Response.json({error:"OS não encontrada."},{status:404});
     if (current.status==="Concluída") return Response.json({error:"A OS já está concluída. A atribuição foi preservada."},{status:409});
-    await db.update(workOrders).set({ assignedArea: body.assignedArea, assignedResponsible: String(body.assignedResponsible || responsibleByArea[body.assignedArea] || "").trim().slice(0, 300), status: "Atribuída", updatedAt: new Date() }).where(and(eq(workOrders.publicId, body.publicId),ne(workOrders.status,"Concluída")));
+    await db.update(workOrders).set({ assignedArea: body.assignedArea, assignedResponsible: String(names[body.assignedArea!] || "").trim().slice(0, 300), status: "Atribuída", updatedAt: new Date() }).where(and(eq(workOrders.publicId, body.publicId),ne(workOrders.status,"Concluída")));
     return Response.json({ ok: true });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Erro ao atribuir a OS." }, { status: 500 });

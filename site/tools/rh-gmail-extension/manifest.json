@@ -1,0 +1,10 @@
+{
+ "manifest_version":3,
+ "name":"RCO — Documentos ao RH (base)",
+ "version":"0.1.0",
+ "description":"Consulta as entregas de atestado e declaração. Envio ao Gmail aguarda liberação do Supervisor.",
+ "permissions":["tabs","scripting","storage"],
+ "host_permissions":["https://rco-manutencao.fernandorosa-mb.chatgpt.site/*"],
+ "background":{"service_worker":"background.js"},
+ "action":{"default_popup":"popup.html","default_title":"Documentos RCO ao RH"}
+}
