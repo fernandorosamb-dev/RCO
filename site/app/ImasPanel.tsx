@@ -27,7 +27,7 @@ export default function ImasPanel({report,onSaved,mode="supervisor"}:{report:Exp
  const giveBack=(event:React.FormEvent)=>{event.preventDefault();return run(async()=>{if(eng)return propose("return",{reason});const r=await post("/api/reports/return",{publicId:report.publicId,reason});setReturning(false);return r.message;},"Não foi possível devolver.");};
  const link=()=>run(async()=>{await post("/api/imas/link",{publicId:report.publicId,osNumber:number});},"Falha no vínculo.");
  const locked=busy||report.automationState==="processing"||sent;
- return <section className="mt-4 rounded-xl border border-cyan-200 bg-cyan-50 p-4"><p className="font-bold">{sent?"Pedido enviado":report.automationState==="processing"?"OS em processamento":waiting?"OS na fila automática":"Revisão da OS"}</p>
+ return <section className="mt-4 rounded-xl border border-cyan-200 bg-cyan-50 p-4 text-slate-900"><p className="font-bold">{sent?"Pedido enviado":report.automationState==="processing"?"OS em processamento":waiting?"OS na fila automática":"Revisão da OS"}</p>
   <div className="mt-3 flex flex-wrap gap-2">
    <button type="button" className="report-button" disabled={locked||waiting||report.status==="Devolvida"} onClick={()=>void approve()}>{busy?"Aguarde…":waiting?"Aprovada":"Aprovar"}</button>
    <button type="button" className="report-button" disabled={locked} onClick={()=>void reject()}>Rejeitar</button>

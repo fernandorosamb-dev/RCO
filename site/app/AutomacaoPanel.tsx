@@ -19,7 +19,7 @@ export default function AutomacaoPanel(){
  const number=new Map(jobs.map(j=>[j.publicId,j.externalNumber||j.publicId.slice(0,6)]));
  const errors=runs.filter(r=>r.state==="failed").slice(0,15);
  const ask=(text:string,event:string)=>{if(window.confirm(text)){setNote("Comando enviado à extensão. Acompanhe o aviso na parte de baixo da tela.");fire(event);window.setTimeout(()=>void load(),4000);}};
- return <section className="mt-4 rounded-xl border border-cyan-200 bg-cyan-50 p-4" aria-label="Automação IMAS">
+ return <section className="mt-4 rounded-xl border border-cyan-200 bg-cyan-50 p-4 text-slate-900" aria-label="Automação IMAS">
   <p className="font-bold">Automação IMAS <span className="text-sm font-normal">(só roda quando você clica; precisa da extensão ligada)</span></p>
   <div className="mt-3 flex flex-wrap gap-2">
    <button type="button" className="report-button" disabled={!toCreate} onClick={()=>ask(`Criar ${toCreate} OS corretiva(s) no IMAS? O número volta para o app.`,"rco-imas-run-create")}>Criar OS corretivas ({toCreate})</button>

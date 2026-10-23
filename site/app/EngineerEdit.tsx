@@ -15,7 +15,7 @@ export default function EngineerEdit({report,onSent,disabled=false}:{report:Expo
  }catch(e){setMessage(e instanceof Error?e.message:"Não foi possível enviar.");}finally{setBusy(false);}}
  const input=(key:keyof ReturnType<typeof start>,label:string,type="text")=><label className="field"><span>{label}</span><input required type={type} value={form[key]} onChange={e=>set(key,e.target.value)}/></label>;
  if(!open)return <div><button type="button" className="report-button" disabled={disabled} onClick={()=>{setForm(start());setMessage("");setOpen(true);}}><Pencil size={17}/> Editar</button>{message&&<p role="status" className="mt-2 text-sm font-semibold">{message}</p>}</div>;
- return <form onSubmit={submit} className="rounded-xl border border-amber-200 bg-amber-50 p-4"><fieldset disabled={busy} className="space-y-3">
+ return <form onSubmit={submit} className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-slate-900"><fieldset disabled={busy} className="space-y-3">
   <h4 className="font-bold">Editar OS {report.imasOsNumber||report.osNumber}</h4>
   <label className="field"><span>Executor — cadastro IMAS</span><select required value={form.collaborator} onChange={e=>set("collaborator",e.target.value)}><option value="">Selecione</option>{IMAS_EXECUTORS.map(n=><option key={n}>{n}</option>)}</select></label>
   <div className="grid gap-3 sm:grid-cols-2">{input("executionStartedAt","Início da execução","datetime-local")}{input("completedAt","Conclusão","datetime-local")}{input("environment","Ambiente")}{input("floor","Pavimento")}</div>
