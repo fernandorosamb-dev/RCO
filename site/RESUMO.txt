@@ -1,3 +1,6 @@
+PUBLICAÇÃO 2026-10-23.140
+- Nova aba Operador (Supervisor): lista o que está pronto para criar, pronto para encerrar (preventivas e corretivas), em andamento, aguardando colaborador e bloqueado, com o motivo e a ação exata para cada bloqueio. Lote só segue após o Supervisor confirmar a lista; a execução continua na extensão. Mostra falhas recentes e regras aprendidas. Não altera banco nem contrato.
+
 PUBLICAÇÃO 2026-10-23.139
 - Equipamento: lista pesquisável com os 272 equipamentos do IMAS. Obrigatório em Nova OS e na correção/relato do colaborador. Gravado em imasEquipmentCode/imasEquipmentName (migração 0018, valor padrão vazio, nada apagado). OS corretiva sem equipamento mostra FALTA EQUIPAMENTO e não entra na fila.
 - Botões visíveis na Revisão da OS: "Reabrir OS — voltar à fila de encerramento" e "Já está OK no IMAS — encerrar no RCO" (mesma lógica da v138, antes escondida em "Status / opções").
