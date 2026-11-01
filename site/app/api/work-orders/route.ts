@@ -76,9 +76,12 @@ export async function POST(request: Request) {
     const pending:{osNumber:string;reason:string}[]=[];
     const now=Date.now();let created=0,updated=0;
     const statements=[env.DB.prepare("INSERT INTO os_imports (public_id,competence,file_name,object_key,os_count,created_at) VALUES (?,?,?,?,?,?) ON CONFLICT(object_key) DO NOTHING").bind(importPublicId,competence,file.name.slice(0,180),objectKey,orders.length,now)];
+    let bombPairIndex=0;
     for(const order of orders) {
       const current=existingByNumber.get(order.osNumber);
-      const inferred=classifyOrder(order,history);
+      let inferred=classifyOrder(order,history);
+      // Bombas e motobombas vêm em pares: uma OS para a Elétrica e outra para a Hidráulica, alternando pela ordem do número da OS.
+      if(inferred.shared?.length){const area=inferred.shared[bombPairIndex++%inferred.shared.length];inferred={...inferred,assignedArea:area,assignedResponsible:responsibleByArea[area],reason:"Bomba dividida entre Elétrica e Hidráulica; esta OS ficou com "+(area==="eletrica"?"a Elétrica":"a Hidráulica")+"."};}
       const assignedArea=current?.assignedArea || inferred.assignedArea;
       const assignedResponsible=names[assignedArea]||current?.assignedResponsible||inferred.assignedResponsible||"";
       const status=current?.status==="Concluída"?"Concluída":current?.status && current.status!=="Atribuir"?current.status:/conclu[ií]da/i.test(order.originalStatus)?"Concluída":assignedArea?"Atribuída":"Atribuir";

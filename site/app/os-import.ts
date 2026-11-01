@@ -70,10 +70,11 @@ export function ruleArea(equipment: string): RuleArea {
   if (/portao|pintura|alvenaria|telhado|serralher|piso|porta\b|carrinho/.test(value)) found.add("civil");
   return found.size === 1 ? [...found][0] : "";
 }
-export function classifyOrder(order: ImportedOrder, history: ReadonlyMap<string, AssignmentHistory> = new Map()): { assignedArea: string; assignedResponsible: string; reason: string } {
+export function classifyOrder(order: ImportedOrder, history: ReadonlyMap<string, AssignmentHistory> = new Map()): { assignedArea: string; assignedResponsible: string; reason: string; shared?: ImportArea[] } {
   if (!order.unit) return { assignedArea:"", assignedResponsible:"", reason:"Unidade não reconhecida no PDF." };
   const byRule = ruleArea(order.equipment);
-  if (byRule === "bombas") return { assignedArea:"", assignedResponsible:"", reason:"Bomba: Elétrica e Hidráulica dividem. Defina quem executa esta OS." };
+  // Bombas e motobombas vêm em pares: a importação alterna entre as duas áreas para cada uma fazer a sua parte.
+  if (byRule === "bombas") return { assignedArea:"", assignedResponsible:"", reason:"Bomba: Elétrica e Hidráulica dividem. Defina quem executa esta OS.", shared:["eletrica","hidraulica"] };
   if (byRule) return { assignedArea:byRule, assignedResponsible:responsibleByArea[byRule], reason:"Cargo definido pela regra do Supervisor para este equipamento." };
   const key=equipmentKey(order.unit,order.equipment); const learned=key?history.get(key):undefined;
   if (learned && importAreas.includes(learned.assignedArea as ImportArea)) return { assignedArea:learned.assignedArea, assignedResponsible:learned.assignedResponsible||responsibleByArea[learned.assignedArea], reason:"Atribuição anterior do mesmo equipamento." };
