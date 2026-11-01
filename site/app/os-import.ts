@@ -53,8 +53,28 @@ function textAreas(text: string): ImportArea[] {
   if (/hidraul|torneira|vaso sanit|esgoto|ralo|caixa d.?agua|bomba|hidrante|botoeira|central de alarme|detector de fumaca|banheiro|valvula|recalque/.test(value) && !/quadro/.test(value)) found.push("hidraulica");
   return found;
 }
+// Regras de responsável definidas pelo Supervisor em 01/11/2026. Valem sobre listas antigas e histórico,
+// porque antes parte dos equipamentos ia para a Civil só por falta de gente.
+// Refrigeração: bebedouro, ventilador, exaustor, ar condicionado. Elétrica: quadros, CFTV, telefonia, rede, estabilizador, no-break,
+// botoeira, detector de fumaça, central de alarme. Hidráulica: hidrantes, válvulas, banheiros, tubulação. Civil: portão, pintura etc.
+// Bombas e motobombas: Elétrica e Hidráulica dividem (a OS traz teste elétrico e hidráulico).
+export type RuleArea = ImportArea | "bombas" | "";
+export function ruleArea(equipment: string): RuleArea {
+  const value = normalizeText(equipment.replace(/\d{5}/g, " "));
+  if (/quadro/.test(value)) return "eletrica";
+  if (/bomba|motobomba|moto[ -]bomba/.test(value)) return "bombas";
+  const found = new Set<ImportArea>();
+  if (/eletric|tomada|ilumin|lampada|gerador|disjuntor|nobreak|no[ -]?break|estabilizador|cftv|dvr|camera|interfone|telefon|cabeament|rack\b|rede\b|aterr|botoeira|detector de fumaca|alarme/.test(value)) found.add("eletrica");
+  if (/bebedouro|ventilador|exaustor|ar[- ]?condicionado|split|climatiza|refriger|evaporadora|condensadora|fancoil|fan coil/.test(value)) found.add("refrigeracao");
+  if (/hidrante|hidrate|valvula|recalque|banheiro|torneira|vaso sanit|esgoto|ralo|caixa d.?agua|reservatorio|tubulacao|hidrometro|hidraul/.test(value)) found.add("hidraulica");
+  if (/portao|pintura|alvenaria|telhado|serralher|piso|porta\b|carrinho/.test(value)) found.add("civil");
+  return found.size === 1 ? [...found][0] : "";
+}
 export function classifyOrder(order: ImportedOrder, history: ReadonlyMap<string, AssignmentHistory> = new Map()): { assignedArea: string; assignedResponsible: string; reason: string } {
   if (!order.unit) return { assignedArea:"", assignedResponsible:"", reason:"Unidade não reconhecida no PDF." };
+  const byRule = ruleArea(order.equipment);
+  if (byRule === "bombas") return { assignedArea:"", assignedResponsible:"", reason:"Bomba: Elétrica e Hidráulica dividem. Defina quem executa esta OS." };
+  if (byRule) return { assignedArea:byRule, assignedResponsible:responsibleByArea[byRule], reason:"Cargo definido pela regra do Supervisor para este equipamento." };
   const key=equipmentKey(order.unit,order.equipment); const learned=key?history.get(key):undefined;
   if (learned && importAreas.includes(learned.assignedArea as ImportArea)) return { assignedArea:learned.assignedArea, assignedResponsible:learned.assignedResponsible||responsibleByArea[learned.assignedArea], reason:"Atribuição anterior do mesmo equipamento." };
   const matches = new Set<ImportArea>();

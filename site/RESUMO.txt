@@ -1,3 +1,8 @@
+PUBLICAÇÃO 2026-11-01.141
+- Distribuição de OS por cargo (Distribuir/importar PDF) passou a seguir as regras do Supervisor de 01/11/2026, acima do histórico e das listas antigas: Refrigeração = bebedouro, ventilador, exaustor, ar condicionado; Elétrica = quadros, CFTV, telefonia/interfone, rede, estabilizador, no-break, botoeira, detector de fumaça, central de alarme; Hidráulica = hidrantes, válvulas, banheiros, tubulação; Civil = portão, pintura etc.; Bombas e motobombas = Elétrica e Hidráulica dividem (a OS fica sem cargo único para o Supervisor escolher).
+- Validado com o plano de novembro (68 OS): resultado idêntico à planilha aprovada (64 definidas, 4 bombas para escolher).
+- Teste os-import atualizado (8/8). Sem mudança de banco nem de contrato.
+
 PUBLICAÇÃO 2026-10-23.140
 - Nova aba Operador (Supervisor): lista o que está pronto para criar, pronto para encerrar (preventivas e corretivas), em andamento, aguardando colaborador e bloqueado, com o motivo e a ação exata para cada bloqueio. Lote só segue após o Supervisor confirmar a lista; a execução continua na extensão. Mostra falhas recentes e regras aprendidas. Não altera banco nem contrato.
 
