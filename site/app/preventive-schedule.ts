@@ -3,9 +3,19 @@ const datePart=(value:string)=>{
  const day=iso?.[1]||(br?`${br[3]}-${br[2]}-${br[1]}`:"");if(!day)return "";
  const d=new Date(day+"T00:00:00Z");return Number.isFinite(d.getTime())&&d.toISOString().slice(0,10)===day?day:"";
 };
+// A partir de novembro/2026: a conclusão fica no mesmo dia útil da execução e nunca passa de dois dias úteis antes do dia 20.
+export function lastCloseDay(month:string){
+ const d=new Date(month+"-20T00:00:00Z");let back=2;
+ while(back>0){d.setUTCDate(d.getUTCDate()-1);const w=d.getUTCDay();if(w!==0&&w!==6)back--;}
+ return d.toISOString().slice(0,10);
+}
+const businessRule=(month:string)=>month>="2026-11";
+const businessDay=(day:string)=>{const d=new Date(day+"T00:00:00Z");while([0,6].includes(d.getUTCDay()))d.setUTCDate(d.getUTCDate()-1);return d.toISOString().slice(0,10);};
 export function preventiveDefaults(planned:string,competence=""){
  const day=datePart(planned);if(!day)return null;
- const month=/^\d{4}-(0[1-9]|1[0-2])$/.test(competence)?competence:day.slice(0,7),ceiling=month+"-20";
+ const month=/^\d{4}-(0[1-9]|1[0-2])$/.test(competence)?competence:day.slice(0,7);
+ if(businessRule(month)){const top=lastCloseDay(month),d0=day>top?top:day,start0=businessDay(d0);return {executionStartedAt:start0+"T09:00",completedAt:start0+"T16:00",imasOpenedAt:start0+"T08:00"};}
+ const ceiling=month+"-20";
  const start=day>ceiling?ceiling:day;
  const d=new Date(start+"T00:00:00Z");d.setUTCDate(d.getUTCDate()+2);
  const end=d.toISOString().slice(0,10)>ceiling?ceiling:d.toISOString().slice(0,10);
@@ -13,7 +23,7 @@ export function preventiveDefaults(planned:string,competence=""){
 }
 export function normalizePreventiveSchedule(startValue:string,endValue:string,planned:string,competence="",opened=""){
  const base=preventiveDefaults(planned,competence)||preventiveDefaults(startValue,competence);if(!base)return null;
- const limit=base.executionStartedAt.slice(0,7)+"-20";
+ const limit=businessRule(base.executionStartedAt.slice(0,7))?lastCloseDay(base.executionStartedAt.slice(0,7)):base.executionStartedAt.slice(0,7)+"-20";
  let start=datePart(startValue)||base.executionStartedAt.slice(0,10);if(start>limit)start=limit;
  const span=preventiveDefaults(start,start.slice(0,7))!;
  let end=datePart(endValue)||span.completedAt.slice(0,10);

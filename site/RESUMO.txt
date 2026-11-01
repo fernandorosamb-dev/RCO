@@ -1,3 +1,8 @@
+PUBLICAÇÃO 2026-11-01.143
+- Novembro/2026: cronograma em dias úteis. Execução somente de 03 a 17/11 (11 dias, ~6 OS por dia, agrupadas por local; bombas Elétrica+Hidráulica no mesmo dia). Plano em NOVEMBER_PLAN (maintenance-plan.ts) e usado pelo prazo de execução de cada OS da competência 2026-11.
+- Regra de conclusão a partir de 11/2026: no mesmo dia útil da execução e nunca depois de dois dias úteis antes do dia 20 (18/11). Datas de fim de semana recuam para sexta. Outubro permanece como era.
+- Teste preventive-roster atualizado; suites os-import, schedule e contrato passam.
+
 PUBLICAÇÃO 2026-11-01.142
 - Distribuição de OS por cargo (Distribuir/importar PDF) passou a seguir as regras do Supervisor de 01/11/2026, acima do histórico e das listas antigas: Refrigeração = bebedouro, ventilador, exaustor, ar condicionado; Elétrica = quadros, CFTV, telefonia/interfone, rede, estabilizador, no-break, botoeira, detector de fumaça, central de alarme; Hidráulica = hidrantes, válvulas, banheiros, tubulação; Civil = portão, pintura etc.; Bombas e motobombas vêm em pares e são divididas: na importação alternam Elétrica, Hidráulica, Elétrica, Hidráulica pela ordem do número da OS (cada área faz a sua parte; o Supervisor pode trocar).
 - Validado com o plano de novembro (68 OS): resultado idêntico à planilha aprovada (68 definidas: bombas 329583 e 329585 Elétrica, 329584 e 329586 Hidráulica).

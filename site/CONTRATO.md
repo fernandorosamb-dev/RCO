@@ -30,7 +30,7 @@ Acesso exclusivo ao Supervisor autenticado. Sem sessão ou com outro perfil: HTT
 ```json
 {
   "schemaVersion": 1,
-  "appVersion": "2026-11-01.142",
+  "appVersion": "2026-11-01.143",
   "minExtensionVersion": "2.3.0",
   "config": {
     "maxFotosSemRevisao": 5,
