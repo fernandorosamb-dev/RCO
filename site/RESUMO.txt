@@ -1,6 +1,6 @@
-PUBLICAÇÃO 2026-11-01.143
-- Novembro/2026: cronograma em dias úteis. Execução somente de 03 a 17/11 (11 dias, ~6 OS por dia, agrupadas por local; bombas Elétrica+Hidráulica no mesmo dia). Plano em NOVEMBER_PLAN (maintenance-plan.ts) e usado pelo prazo de execução de cada OS da competência 2026-11.
-- Regra de conclusão a partir de 11/2026: no mesmo dia útil da execução e nunca depois de dois dias úteis antes do dia 20 (18/11). Datas de fim de semana recuam para sexta. Outubro permanece como era.
+PUBLICAÇÃO 2026-11-01.144
+- Novembro/2026: execução dividida em dias úteis de 03 a 17/11 (11 dias, ~6 OS por dia, agrupadas por local; bombas Elétrica+Hidráulica no mesmo dia), em NOVEMBER_PLAN (maintenance-plan.ts). A conclusão segue o prazo do IMAS, dia 20/11, para todas as OS.
+- Regra a partir de 11/2026: execução só em dia útil e no máximo três dias úteis antes do dia 20 (17/11 em novembro); conclusão padrão no dia 20. Outubro permanece como era.
 - Teste preventive-roster atualizado; suites os-import, schedule e contrato passam.
 
 PUBLICAÇÃO 2026-11-01.142

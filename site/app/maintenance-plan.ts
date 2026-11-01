@@ -12,7 +12,7 @@ export const OCTOBER_PLAN = [
   { date: "2026-10-16", focus: "DVR 2 e interfone; hidrantes dos galpões 1 e 2; bebedouros predial e depósito; AR 08", orders: [323130,323169,323158,323159,323160,323161,323116,323117,323120,323121,323110] },
   { date: "2026-10-19", focus: "Oficina e iluminação de emergência; hidrante e botoeira da recepção; bebedouros do refeitório e gerente; AR 09; conferência final", orders: [323095,323175,323139,323141,323118,323119,323122,323111] },
 ] as const;
-// Plano operacional de novembro/2026 (dias úteis de 03 a 17; conclusão no mesmo dia, limite 18/11 = dois dias úteis antes do dia 20).
+// Plano operacional de novembro/2026: execução dividida em dias úteis de 03 a 17; a conclusão segue o prazo do IMAS (dia 20).
 export const NOVEMBER_PLAN = [
   { date: "2026-11-03", focus: "Portão do corredor; sala online (no-break, detector de fumaça, DVR 1 e 2); bebedouros das salas RCO e Bombeiros", orders: [329528,329550,329551,329552,329553,329539,329540] },
   { date: "2026-11-04", focus: "Sala online (câmera, iluminária de emergência, quadros QDLT 4 e 5); bebedouros da recepção e guarita", orders: [329554,329555,329537,329538,329541,329542] },

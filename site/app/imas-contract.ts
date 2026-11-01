@@ -3,7 +3,7 @@ import { STANDARD_PHOTOS } from "./photo-policy";
 // Update with CONTRATO.md whenever the integration contract or app release changes.
 export const IMAS_CONTRACT = {
   schemaVersion: 1,
-  appVersion: "2026-11-01.143",
+  appVersion: "2026-11-01.144",
   minExtensionVersion: "2.3.0",
   config: {
     maxFotosSemRevisao: STANDARD_PHOTOS,
