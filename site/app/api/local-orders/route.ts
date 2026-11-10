@@ -31,7 +31,7 @@ export async function POST(request: Request) {
     const imasSystem=read("imasSystem"), imasSubject=read("imasSubject"), imasOpenedInput=read("imasOpenedAt"), imasActivation=read("imasActivation"), imasClientReference=read("imasClientReference");
     if (!(IMAS_SYSTEMS as readonly string[]).includes(imasSystem) || !imasSubject || imasSubject.length > 500 || imasActivation.length > 500 || imasClientReference.length > 100) return Response.json({error:"Confira o assunto, sistema e data/hora de abertura do IMAS."},{status:400});
     const rawStart = read("executionStartedAt"), rawEnd = read("completedAt");
-    if (!["Corretiva", "Teste de equipamento"].includes(activityType) || !areas.includes(area)) {
+    if (!["Corretiva", "Preventiva", "Teste de equipamento"].includes(activityType) || !areas.includes(area)) {
       return Response.json({ error: "Selecione o tipo de atividade e a área." }, { status: 400 });
     }
     if (![collaborator, environment, floor, description, observations].every(Boolean)) {
