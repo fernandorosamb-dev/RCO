@@ -31,5 +31,5 @@ export function imasJob(original:ExportReport) {
     if(!(IMAS_SYSTEMS as readonly string[]).includes(report.imasSystem || ""))errors.push("Selecionar sistema");
     if(!isImasDate(report.imasOpenedAt || ""))errors.push("Informar abertura");
   }
-  return {creationOnly:report.status==="Aguardando criação",publicId:report.publicId,reference:report.osNumber,externalNumber,phase,errors,ready:!errors.length,mode:"validation",saveAllowed:false,photoUploadAllowed:false,report,fixed:IMAS_FIXED,responsible};
+  return {creationOnly:report.status==="Aguardando criação",publicId:report.publicId,reference:report.osNumber,externalNumber,phase,errors,ready:!errors.length,mode:"validation",saveAllowed:false,photoUploadAllowed:false,report,fixed:{...IMAS_FIXED,type:report.activityType==="Preventiva"?"PREVENTIVA":IMAS_FIXED.type},responsible};
 }
