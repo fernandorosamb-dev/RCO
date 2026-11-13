@@ -12,7 +12,7 @@ export default function NewLocalOrder({role}:{role:Role}){
  const [form,setForm]=useState(initial),[busy,setBusy]=useState(false),[message,setMessage]=useState("");
  const change=(key:keyof ReturnType<typeof initial>,value:string)=>setForm(f=>({...f,[key]:value}));
  async function submit(event:React.FormEvent){
-  event.preventDefault();if(new Date(form.completedAt).getTime()<new Date(form.executionStartedAt).getTime()){setMessage("A conclusão prevista não pode ser anterior ao início previsto.");return;}if(!form.imasEquipmentCode){setMessage("Escolha o equipamento na lista do IMAS.");return;}setBusy(true);setMessage("");
+  event.preventDefault();if(new Date(form.completedAt).getTime()<new Date(form.executionStartedAt).getTime()){setMessage("A conclusão prevista não pode ser anterior ao início previsto.");return;}setBusy(true);setMessage("");
   try{
    const body=new FormData();Object.entries(form).forEach(([k,v])=>body.set(k,v));
    body.set("workflow","creation");body.set("observations",form.description.trim()||form.imasSubject.trim());body.set("description",form.description.trim()||form.imasSubject.trim());
@@ -29,7 +29,7 @@ export default function NewLocalOrder({role}:{role:Role}){
  <div className="grid gap-4 sm:grid-cols-2">{([['environment','Local / ambiente'],['floor','Pavimento']] as const).map(([k,label])=><label className="field" key={k}><span>{label}</span><input required maxLength={500} value={form[k]} onChange={e=>change(k,e.target.value)}/></label>)}</div>
  <label className="field"><span>Assunto / serviço solicitado</span><input required maxLength={500} value={form.imasSubject} onChange={e=>change("imasSubject",e.target.value)}/></label>
  <label className="field"><span>Sistema</span><select required value={form.imasSystem} onChange={e=>change("imasSystem",e.target.value)}><option value="">Selecione</option>{IMAS_SYSTEMS.map(v=><option key={v}>{v}</option>)}</select></label>
- <EquipmentPicker code={form.imasEquipmentCode} onChange={code=>change("imasEquipmentCode",code)}/>
+ <EquipmentPicker code={form.imasEquipmentCode} required={false} onChange={code=>change("imasEquipmentCode",code)}/><p className="text-sm text-slate-600">Selecione um equipamento somente quando a OS estiver vinculada a um item cadastrado no IMAS.</p>
  <label className="field"><span>Equipamento / TAG{form.activityType==="Teste de equipamento"?"":" (se aplicável)"}</span><input required={form.activityType==="Teste de equipamento"} maxLength={500} value={form.equipment} onChange={e=>change("equipment",e.target.value)}/></label>
  <div className="grid gap-4 sm:grid-cols-2"><label className="field"><span>Início previsto</span><input required type="datetime-local" value={form.executionStartedAt} onChange={e=>change("executionStartedAt",e.target.value)}/></label><label className="field"><span>Conclusão prevista</span><input required type="datetime-local" value={form.completedAt} onChange={e=>change("completedAt",e.target.value)}/></label></div>
  <label className="field"><span>Descrição da solicitação</span><textarea rows={3} maxLength={10000} value={form.description} onChange={e=>change("description",e.target.value)} placeholder="Descreva a manutenção preventiva, o problema ou o teste necessário."/></label>
