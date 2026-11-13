@@ -26,8 +26,8 @@ export async function POST(request: Request) {
     if(read("collaborator")&&!rosterExecutor(read("collaborator"),await readRoleRoster()))return Response.json({error:"Selecione um executor do cadastro IMAS."},{status:400});
     const description = read("description"), equipment = read("equipment"), observations = read("observations");
     const imasEquipmentCode=read("imasEquipmentCode");
-    if(!isImasEquipmentCode(imasEquipmentCode))return Response.json({error:"Escolha o equipamento na lista do IMAS."},{status:400});
-    const imasEquipmentLabel=imasEquipmentName(imasEquipmentCode);
+    if(imasEquipmentCode&&!isImasEquipmentCode(imasEquipmentCode))return Response.json({error:"O código do equipamento informado é inválido."},{status:400});
+    const imasEquipmentLabel=imasEquipmentCode?imasEquipmentName(imasEquipmentCode):"";
     const imasSystem=read("imasSystem"), imasSubject=read("imasSubject"), imasOpenedInput=read("imasOpenedAt"), imasActivation=read("imasActivation"), imasClientReference=read("imasClientReference");
     if (!(IMAS_SYSTEMS as readonly string[]).includes(imasSystem) || !imasSubject || imasSubject.length > 500 || imasActivation.length > 500 || imasClientReference.length > 100) return Response.json({error:"Confira o assunto, sistema e data/hora de abertura do IMAS."},{status:400});
     const rawStart = read("executionStartedAt"), rawEnd = read("completedAt");

@@ -23,7 +23,7 @@ export function imasJob(original:ExportReport) {
   if(!isImasDate(report.executionStartedAt)||!isImasDate(report.completedAt)||report.completedAt<report.executionStartedAt)errors.push("Conferir início e conclusão");
   if(!report.photos.length&&!(phase==="criar"&&report.status==="Aguardando criação"))errors.push("Anexar evidência fotográfica");
   if(report.status==="Aguardando execução")errors.push("Aguardar execução e envio do colaborador");
-  if(report.origin==="app"&&!report.imasEquipmentCode)errors.push("FALTA EQUIPAMENTO — o colaborador deve escolher o equipamento no RCO (Abrir e encerrar OS)");
+  
   if(externalNumber&&!/^\d+$/.test(externalNumber))errors.push("Número do IMAS inválido");
   if(!responsible)errors.push("Selecionar executor cadastrado no IMAS");
   if(phase==="criar") {
