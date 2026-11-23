@@ -29,12 +29,13 @@ function render(){
  $('corr').textContent=`Concluir OS corretivas (${g.corr.length})`;
  $('prev').textContent=`Concluir OS preventivas liberadas (${g.prev.length})`;
  $('create').disabled=busy||!g.create.length;$('corr').disabled=busy||!g.corr.length;$('prev').disabled=busy||!g.prev.length;
- $('stop').disabled=st.batch?.state!=='executando';
+ $('stop').disabled=working;$('stop').textContent=st.chiefPaused?'Retomar agente chefe':'Pausar agente chefe';
  $('release').disabled=busy||!st.pending;
  $('force').disabled=busy||!jobs.value;
 }
 function summary(){
  const b=st.batch,p=st.pending,lines=[];
+ if(st.chiefStatus)lines.push('Agente chefe: '+st.chiefStatus.state+' · '+st.chiefStatus.step+(st.chiefStatus.lastError?' — '+st.chiefStatus.lastError:''));
  const c=st.contractState;
  if(c&&c.state!=='ok')lines.push(`Contrato com o app: ${c.state}${c.note?' — '+c.note:''}`);
  if(p)lines.push(`OS pendente: ${p.externalNumber||p.reference||p.publicId} — ${p.state}. Confira a auditoria; nenhuma tentativa será apagada.`);
@@ -42,7 +43,7 @@ function summary(){
   const current=new Set(queueJobs.map(j=>j.publicId));
   const relevant=(b.skipped||[]).filter(j=>current.has(j.publicId));
   const semEquip=relevant.filter(j=>/FALTA EQUIPAMENTO/.test(j.reason||''));
-  if(semEquip.length)lines.push('⚠ FALTA EQUIPAMENTO em: OS '+semEquip.map(j=>j.reference).join(', ')+'\nNo IMAS: abra a OS > Equipamentos > Adicionar equipamento. Depois rode de novo.');
+  if(semEquip.length)lines.push('⚠ FALTA EQUIPAMENTO em: OS '+semEquip.map(j=>j.reference).join(', ')+'\nNo RCO: escolha o equipamento cadastrado e reenvie a OS.');
   lines.push(`Último lote${b.startedAt?' · '+new Date(b.startedAt).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'}):''} · ${b.state}: ${b.completed?.length||0} ${b.mode==='create'?'criadas':'concluídas'} · ${b.remaining?.length||0} restantes · ${relevant.length} ainda na fila para conferir`+(b.error?'\n'+b.error:''));
   for(const j of relevant.filter(j=>!/FALTA EQUIPAMENTO/.test(j.reason||'')).slice(0,8))lines.push(`  • OS ${j.reference}: ${String(j.reason||'').slice(0,160)}`);
  }
@@ -73,7 +74,7 @@ async function run(fn){
  if(working)return;working=true;render();
  try{status.textContent='Executando…';status.textContent=await fn()||'';}
  catch(e){status.textContent=e.message;}
- finally{working=false;try{await refresh();}catch{}}
+ finally{working=false;try{await refresh();}catch{render();}}
 }
 jobs.onchange=render;
 const start=(action,rotulo,lista,aviso)=>()=>run(async()=>{
@@ -84,7 +85,7 @@ const start=(action,rotulo,lista,aviso)=>()=>run(async()=>{
 $('create').onclick=start('run-create','Criar no IMAS',()=>groups().create,'A OS nasce como Aberta e o número volta para o app.');
 $('corr').onclick=start('run-close-corrective','Concluir corretivas',()=>groups().corr,'Fotos + dados + Salvar; depois a baixa no app.');
 $('prev').onclick=start('run-close-preventive','Concluir preventivas liberadas',()=>groups().prev,'Fotos + dados + Salvar; depois a baixa no app.');
-$('stop').onclick=()=>run(async()=>(await call('batch-stop')).message);
+$('stop').onclick=()=>run(async()=>{const r=await call(st.chiefPaused?'chief-resume':'batch-stop');await refresh();return r.message;});
 $('release').onclick=()=>run(async()=>{
  await refresh();const p=st.pending;if(!p)return 'Nenhuma pendência local.';
  if(!confirm(`Liberar somente a pendência local da OS ${p.externalNumber||p.reference||p.publicId}?\nEstado: ${p.state}.\nNão salva nem conclui no IMAS. O histórico e os registros de tentativa serão preservados; nenhuma foto será repetida por esta ação.`))return 'Cancelado.';

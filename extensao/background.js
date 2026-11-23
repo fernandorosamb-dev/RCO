@@ -1,10 +1,11 @@
-// RCO worker — versão 3.0.5 (carregado direto pelo Chrome, sem schedule.js)
-chrome.storage.local.set({bgBuild:'3.0.5',workerBoot:{step:'background.js executou (direto)',at:new Date().toISOString(),version:'3.0.5'},workerStartup:{version:'3.0.5',at:new Date().toISOString(),entry:'background.js',state:'ready',error:''}}).catch(()=>{});
+// RCO worker — versão informada pelo manifesto.
+const workerVersion=chrome.runtime.getManifest().version;
+chrome.storage.local.set({bgBuild:workerVersion,workerBoot:{step:'background.js executou (direto)',at:new Date().toISOString(),version:workerVersion},workerStartup:{version:workerVersion,at:new Date().toISOString(),entry:'background.js',state:'ready',error:''}}).catch(()=>{});
 // ===== PARÂMETROS DO PROCESSO (único lugar para ajustar) =====
 const CONFIG={
   maxFotosSemRevisao:5,             // acima disso a OS vai para revisão (relatório final ≤ 14 MB)
   clienteCodigo:'91',               // cliente fixo no IMAS
-  fotoMaxBytes:15000,               // limite por foto após compactação
+  fotoMaxBytes:8000,                // orçamento por foto para o PDF mensal; originais do RCO permanecem preservados
   fotoLadoMax:480                   // px do lado maior antes de reduzir
 };
 // OS que NUNCA podem ser tocadas pela automação.
@@ -15,6 +16,20 @@ const OS_TESTES_ANTERIORES=new Set(['323080','323081','323082','323140','323145'
 
 const DATA_HORA=/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 function isProtected(job){return OS_PROTEGIDAS.has(job?.externalNumber)||PUBLICID_PROTEGIDOS.has(job?.publicId);}
+// Creation deadline is a scheduling value, not proof of when the service finished.
+function creationWithMonthDeadline(job){
+ if(job?.phase!=='criar'||job.fixed?.type==='PREVENTIVA')return job;
+ const created=job.report?.createdAt;
+ let month='';
+ if(created){const date=new Date(created);if(!Number.isNaN(date.getTime()))month=new Intl.DateTimeFormat('sv-SE',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit'}).format(date);}
+ if(!/^\d{4}-\d{2}$/.test(month)){const reference=/^APP-(\d{4})(\d{2})\d{2}-/.exec(job.reference||job.report?.osNumber||'');if(reference)month=reference[1]+'-'+reference[2];}
+ if(!/^\d{4}-\d{2}$/.test(month))throw Error('Mês de criação não identificado. Confira a OS no RCO.');
+ const [year,m]=month.split('-').map(Number);if(m<1||m>12)throw Error('Mês de criação inválido.');
+ const last=new Date(Date.UTC(year,m,0));while(last.getUTCDay()===0||last.getUTCDay()===6)last.setUTCDate(last.getUTCDate()-1);
+ const deadline=last.toISOString().slice(0,10)+'T16:00';
+ if(job.report.executionStartedAt>deadline)throw Error('Início posterior ao último dia útil do mês de criação. Conferir programação sem inventar datas.');
+ return {...job,report:{...job.report,completedAt:deadline},creationDeadline:deadline};
+}
 function safeJob(job) {
   if(!job)throw Error('OS não encontrada na fila do app.');
   if(isProtected(job))throw Error(`OS ${job.externalNumber||job.publicId} protegida pelo supervisor.`);
@@ -23,14 +38,20 @@ function safeJob(job) {
   if(!['criar','encerrar'].includes(job.phase))throw Error('Etapa inválida.');
   if(job.phase==='criar'&&job.externalNumber)throw Error('OS já vinculada. Não criar novamente.');
   if(job.phase==='encerrar'&&!/^\d+$/.test(job.externalNumber||''))throw Error('Vincule o número do IMAS antes de encerrar.');
+  job=creationWithMonthDeadline(job);
   // Datas: formato completo e ordem cronológica, antes de tocar no IMAS.
-  const r=job.report||{};
+  let r=job.report||{};
+  const agora=new Intl.DateTimeFormat('sv-SE',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date()).replace(' ','T');
+  // Preventiva executada antes da programação: ao encerrar, registrar o horário real
+  // do encerramento no IMAS, sem antecipar a data planejada ou alterar corretivas.
+  if(job.phase==='encerrar'&&r.origin==='sistema'&&r.completedAt>agora){
+    r={...r,completedAt:agora};job={...job,report:r};
+  }
   const datas=[['abertura',r.imasOpenedAt,job.phase==='criar'],['início',r.executionStartedAt,true],['conclusão',r.completedAt,true]];
   for(const [nome,valor,obrigatoria] of datas)if(obrigatoria&&!DATA_HORA.test(valor||''))throw Error(`Data/hora de ${nome} ausente ou incompleta no app.`);
   if(r.executionStartedAt>r.completedAt)throw Error('Início da execução posterior à conclusão.');
   if(job.phase==='criar'&&r.imasOpenedAt>r.executionStartedAt)throw Error('Abertura posterior ao início da execução.');
-  const agora=new Intl.DateTimeFormat('sv-SE',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date()).replace(' ','T');
-  if(r.completedAt>agora)throw Error('Data de conclusão no futuro.');
+  if(job.phase==='encerrar'&&r.completedAt.slice(0,10)>agora.slice(0,10))throw Error('Data de conclusão em dia futuro.');
   if(!String(r.observations||'').trim())throw Error('Observação vazia no app.');
   if(job.phase==='encerrar'&&!(r.photos?.length>0))throw Error('Encerramento sem fotos no app.');
   return job;
@@ -386,6 +407,11 @@ async function acknowledgeSuccess(tabId,number=null){
  }finally{if(attached)await chrome.debugger.detach(target).catch(()=>{});}
 }
 async function createAndSave(publicId){
+ const local=await chrome.storage.local.get(['pending','saveAttempts']);
+ // A prepared creation may have been saved by the Supervisor after an app
+ // timeout. Reconcile that exact pending form before queue admission (which
+ // may now correctly report the expired automation request as failed).
+ if(local.pending?.publicId===publicId&&local.pending.phase==='criar'&&!local.pending.saveAttempted&&!local.saveAttempts?.[publicId])return savePrepared(publicId);
  const job=safeJob((await queue()).jobs.find(j=>j.publicId===publicId));
  if(job.phase!=='criar')throw Error('Esta OS já está vinculada. Encerramento ainda aguarda validação.');
  let {pending,saveAttempts={}}=await chrome.storage.local.get(['pending','saveAttempts']);
@@ -405,6 +431,93 @@ async function createAndSave(publicId){
  else if(pending.publicId!==publicId)throw Error('Libere a outra OS em revisão antes de criar esta.');
  return savePrepared(publicId);
 }
+// Read-only reconciliation: the original "Novo" URL can remain after Salvar.
+// Always open the already observed official number. Never visit Novo or repeat Salvar here.
+async function readPersistedCreation(tab,job,number,options={}){
+ if(!/^[1-9]\d{0,11}$/.test(number||''))throw Error('Número salvo inválido; criação não será repetida.');
+ const stored=await chrome.storage.local.get(['pending','saveAttempts']),receipt=stored.pending;
+ if(options.manual===true){
+  if(!receipt||receipt.publicId!==job.publicId||receipt.phase!=='criar'||receipt.saveAttempted||stored.saveAttempts?.[job.publicId])throw Error('A criação já tem uma tentativa registrada. Use somente a retomada pelo recibo; nenhum novo Salvar será acionado.');
+ }else if(!receipt||receipt.publicId!==job.publicId||receipt.externalNumber!==number||!receipt.saveAttempted||!receipt.successAcknowledged||!receipt.audit?.ok||!receipt.job?.approvalRequest?.fingerprint||receipt.job.approvalRequest.fingerprint!==job.approvalRequest?.fingerprint)throw Error('Recibo de Salvar/OK e conferência anterior ausente ou divergente. Não repetir criação.');
+ const url=new URL('ordem_servico_form.php',IMAS);url.searchParams.set('id_ordem_servico',number);
+ await chrome.tabs.update(tab.id,{url:url.href});await loaded(tab.id);await wait(1500);
+ let proof,persistedNumber;
+ for(let attempt=0;attempt<3;attempt++){
+  proof=await engine(tab,'creationRecord',job);persistedNumber=proof?.number;
+  if(proof?.ok&&persistedNumber===number)return {number,fields:proof.fields,warnings:proof.warnings||[]};
+  if(attempt<2)await wait(1000);
+ }
+ const details=[...(proof?.errors||[]),...(persistedNumber!==number?['número oficial não confirmado']:[])];
+ const error=Error('Criação existente '+number+' não conferida: '+details.join('; ')+'. Não repetir criação nem fotos.');
+ error.creationProof={number,fields:proof?.fields||{},errors:details};throw error;
+}
+// Recupera uma OS que o Supervisor salvou manualmente depois de uma falha
+// anterior à tentativa automática. Só lê o número exibido, relê o registro
+// oficial e confirma a mesma aprovação antes de vincular; nunca clica Salvar.
+async function reconcileManualCreation(pending){
+ if(!pending||pending.phase!=='criar'||pending.saveAttempted||!pending.job?.approvalRequest?.fingerprint)return null;
+ const tab=await chrome.tabs.get(pending.tabId);
+ if(!tab.url||new URL(tab.url).origin!==new URL(IMAS).origin||new URL(tab.url).pathname!=='/ordem_servico_form.php')return null;
+ const number=await engine(tab,'savedNumber',{...pending.job,phase:'criar'});
+ if(!/^[1-9]\d{0,11}$/.test(number||''))return null;
+ await trace('Número encontrado no formulário — conferir criação já salva','ok',{message:'Somente leitura; nenhum novo clique em Salvar.'});
+ const proof=await readPersistedCreation(tab,pending.job,number,{manual:true});
+ await trace('Criação manual confirmada no registro oficial','ok',{message:`OS ${number}; conteúdo conferido após releitura do IMAS.`});
+ const current=(await queue()).jobs.find(j=>j.publicId===pending.publicId);
+ if(!current||current.phase!=='criar'||current.report?.status!=='Aguardando criação'||current.externalNumber||current.approvalRequest?.fingerprint!==pending.job.approvalRequest.fingerprint)throw Error('A aprovação ou os dados da OS mudaram. O número foi conferido, mas o vínculo automático foi bloqueado; use Vincular número no RCO.');
+ const linked=await message(await rcoTab(),{action:'vincular',publicId:pending.publicId,osNumber:number});
+ if(!linked?.linked||linked.osNumber!==number)throw Error('O IMAS confirmou a OS, mas o RCO não confirmou o vínculo. Não salvar novamente.');
+ const {creationReceipts={}}=await chrome.storage.local.get('creationReceipts');
+ await chrome.storage.local.set({creationReceipts:{...creationReceipts,[pending.publicId]:{osNumber:number,at:new Date().toISOString(),state:'Aguardando execução',source:'criação manual conferida no IMAS'}}});
+ const latest=(await chrome.storage.local.get('pending')).pending;
+ if(!latest||latest.publicId!==pending.publicId||latest.at!==pending.at)throw Error('O vínculo foi confirmado, mas a pendência local mudou. Confira a fila antes de liberar.');
+ await chrome.storage.local.remove('pending');
+ await audit('criacao-manual-conferida-vinculada',{publicId:pending.publicId,osNumber:number,message:'Número relido no formulário oficial e aprovação/dados conferidos. Sem repetir Salvar.'});
+ return {message:`OS ${number} já estava salva no IMAS. Registro conferido e vinculado ao RCO; nenhuma OS duplicada foi criada.`};
+}
+// Recover only an acknowledged creation with a locally recorded official number.
+// No guessing, no writes to IMAS, and no deletion of save/upload attempts.
+async function restoreAcknowledgedCreation(jobs){
+ if(running||automaticBatchRunning)return false;
+ const state=await chrome.storage.local.get(['pending','pendingHistory','chiefPendingHistory']);
+ if(state.pending)return false;
+ const candidates=[...(state.pendingHistory||[]),...(state.chiefPendingHistory||[])].filter(p=>{
+  const job=jobs.find(j=>j.publicId===p.publicId);
+  return p.phase==='criar'&&p.saveAttempted&&p.successAcknowledged&&p.audit?.ok&&/^[1-9]\d{0,11}$/.test(p.externalNumber||'')&&job?.phase==='criar'&&job.report?.status==='Aguardando criação'&&!job.externalNumber&&!isProtected(job)&&p.job?.approvalRequest?.fingerprint&&p.job.approvalRequest.fingerprint===job.approvalRequest?.fingerprint;
+ });
+ if(!candidates.length)return false;
+ const first=candidates[0],same=candidates.filter(p=>p.publicId===first.publicId);
+ if(new Set(same.map(p=>p.externalNumber)).size!==1)throw Error('Mais de um número salvo para a mesma criação. Conferência técnica necessária; nada será recriado.');
+ if((await chrome.storage.local.get('pending')).pending)return false;
+ await chrome.storage.local.set({pending:{...first,state:'recuperando somente vínculo; criação já confirmada'}});
+ await audit('recibo-criacao-restaurado',{publicId:first.publicId,osNumber:first.externalNumber,message:'Histórico preservado. Somente conferência/vínculo; sem Salvar ou fotos.'});return true;
+}
+async function recoverConfirmedCreation(pending,jobs){
+ if(running||automaticBatchRunning||pending?.phase!=='criar'||!pending.saveAttempted||!pending.successAcknowledged||!pending.audit?.ok||!/^\d+$/.test(pending.externalNumber||''))return false;
+ const job=jobs.find(j=>j.publicId===pending.publicId);
+ if(!job||job.phase!=='criar'||job.report?.status!=='Aguardando criação'||job.externalNumber||isProtected(job))return false;
+ if(!pending.job?.approvalRequest?.fingerprint||pending.job.approvalRequest.fingerprint!==job.approvalRequest?.fingerprint)return false;
+ running=true;activeRun={runId:crypto.randomUUID(),publicId:job.publicId,version:chrome.runtime.getManifest().version,state:'running',step:'Recuperar vínculo da criação existente',events:[],controls:[]};
+ try{
+  await trace('Recuperar vínculo da criação existente');
+  const tab=await imasTab();activeRun.tabId=tab.id;
+  const savedDeadline=pending.job?.report?.completedAt;
+  if(!DATA_HORA.test(savedDeadline||'')||savedDeadline<job.report.executionStartedAt)throw Error('Prazo da criação salva não identificado; nenhum dado será inventado.');
+  const creationJob={...job,report:{...job.report,completedAt:savedDeadline}};
+  const proof=await readPersistedCreation(tab,creationJob,pending.externalNumber);
+  await trace('Número e campos persistidos conferidos','ok',{message:'OS '+proof.number+'; somente leitura, sem novo Salvar ou fotos.'+(proof.warnings.length?' '+proof.warnings.join('; '):'')});
+  const current=(await chrome.storage.local.get('pending')).pending;
+  if(!current||current.publicId!==pending.publicId||current.externalNumber!==proof.number)throw Error('A pendência mudou durante a conferência. Nenhum vínculo realizado.');
+  await message(await rcoTab(),{action:'vincular',publicId:job.publicId,osNumber:proof.number});
+  // Read the authenticated server state; only a matching link releases the lock.
+  const refreshed=await queue();const linked=refreshed.jobs.find(j=>j.publicId===job.publicId);
+  if(linked?.externalNumber!==proof.number||linked.report?.status!=='Aguardando execução')throw Error('Vínculo enviado, mas retorno do RCO ainda não confirmado. Não repetir criação.');
+  await trace('Criação recuperada e vinculada — aguardando colaborador','ok');activeRun.state='review';await syncDiagnostic(true);
+  await audit('criacao-existente-recuperada',{publicId:job.publicId,osNumber:proof.number});
+  return true;
+ }catch(e){activeRun.state='failed';await trace(activeRun.step,'failed',{message:e.message,...(e.creationProof?{creationProof:e.creationProof}:{})});await syncDiagnostic(true);throw e;}
+ finally{running=false;activeRun=null;}
+}
 async function savePrepared(publicId){
  if(running)throw Error('Aguarde a execução terminar.');running=true;
  activeRun={runId:crypto.randomUUID(),publicId,version:chrome.runtime.getManifest().version,state:'running',step:'Verificar criação antes de salvar',events:[],controls:[]};
@@ -412,6 +525,7 @@ async function savePrepared(publicId){
   await trace('Verificar criação antes de salvar');
   const {pending,saveAttempts={}}=await chrome.storage.local.get(['pending','saveAttempts']);
   if(!pending||pending.publicId!==publicId||pending.phase!=='criar'||!pending.audit?.ok)throw Error('Prepare e revise esta criação antes de salvar.');
+  const recovered=await reconcileManualCreation(pending);if(recovered){activeRun.state='completed';await trace('Criação existente reconciliada sem duplicar','ok');await syncDiagnostic(true);return recovered;}
   const recovering=!!(pending.saveAttempted||saveAttempts[publicId]);
   if(pending.externalNumber)throw Error('Já houve tentativa confirmada. Esta criação já tem número; confira a vinculação no app.');
   const job=safeJob((await queue()).jobs.find(j=>j.publicId===publicId));
@@ -444,13 +558,16 @@ async function savePrepared(publicId){
   if(!number)throw Error('Salvar foi acionado uma vez, mas o número não foi confirmado. Confira o IMAS e vincule o número manualmente. Não repita a criação.');
   try{await chrome.scripting.executeScript({target:{tabId:tab.id},world:'MAIN',func:creationDialogs,args:[true]});}catch{}
   await chrome.storage.local.set({pending:{...pending,saveAttempted:true,successAcknowledged:true,state:'criação salva; encerramento pendente',externalNumber:number}});
+  await trace('Agente chefe: reler criação persistida');
+  const persisted=await readPersistedCreation(tab,job,number);
+  if(persisted.warnings.length)await trace('Conferência de campos transitórios','ok',{message:persisted.warnings.join('; ')});
   await trace('Vincular número à OS no app');
   await message(await rcoTab(),{action:'vincular',publicId,osNumber:number});
   activeRun.state='review';await trace('Criação salva e vinculada — encerramento pendente','ok');await syncDiagnostic(true);
   const {creationOkConfirmed={}}=await chrome.storage.local.get('creationOkConfirmed');await chrome.storage.local.set({creationOkConfirmed:{...creationOkConfirmed,[publicId]:number}});
   await audit('criacao-salva-vinculada',{publicId,osNumber:number});
   return {message:`OS ${number} criada como Aberta e vinculada ao app. Fotos e encerramento ainda não executados.`};
- }catch(e){if(activeRun){activeRun.state='failed';try{const {pending}=await chrome.storage.local.get('pending');if(pending?.tabId)activeRun.controls=await engine({id:pending.tabId},'diagnostics');}catch{}await trace(activeRun.step,'failed',{message:e.message});await syncDiagnostic(true);}throw e;}finally{running=false;activeRun=null;}
+ }catch(e){if(activeRun){activeRun.state='failed';try{const {pending}=await chrome.storage.local.get('pending');if(pending?.tabId)activeRun.controls=await engine({id:pending.tabId},'diagnostics');}catch{}await trace(activeRun.step,'failed',{message:e.message,...(e.creationProof?{creationProof:e.creationProof}:{})});await syncDiagnostic(true);}throw e;}finally{running=false;activeRun=null;}
 }
 function clickClosingTarget(selector,number,operation='upload'){
  if(location.origin!=='https://admin.rcoengenharia.com'||location.pathname!=='/ordem_servico_form.php'||new URL(location.href).searchParams.get('id_ordem_servico')!==number||number==='323902')return {noClick:true,error:'OS divergente ou protegida.'};
@@ -686,7 +803,7 @@ async function prepareApprovedBatchStart(jobs){
 }
 async function processApprovedClosing(job){
  safeJob(job);if(job.phase!=='encerrar')throw Error('Retomada exige número oficial do IMAS.');
- const tab=await imasTab();await openForm(tab,job);await loaded(tab.id);await engine(tab,'ensurePhotoSection',job);await wait(2000);
+ const tab=await imasTab();await openForm(tab,job);await chrome.tabs.reload(tab.id);await loaded(tab.id);await engine(tab,'ensurePhotoSection',job);await wait(2000);
  const [idle]=await chrome.scripting.executeScript({target:{tabId:tab.id},world:'MAIN',func:()=>Number(window.jQuery?.active||0)===0});if(!idle?.result)throw Error('Envio pendente no IMAS. Nenhuma foto será repetida.');
  const linked=await engine(tab,'linkedPhotos',job);
  const persisted=await engine(tab,'audit',{...job,verifyUploaded:true});
@@ -837,8 +954,9 @@ async function automaticBatchStep(){
  finally{automaticBatchRunning=false;}
 }
 async function stopAutomaticBatch(){
+ await chrome.storage.local.set({chiefPaused:true});
  await chrome.alarms.clear('rco-imas-batch');const {batch}=await chrome.storage.local.get('batch');
- if(batch?.automatic){await chrome.storage.local.set({batch:{...batch,state:'parado'}});return {message:'Lote parado. A OS em execução será concluída; as próximas não serão iniciadas.'};}
+ if(batch?.automatic){await chrome.storage.local.set({batch:{...batch,state:'parado'}});return {message:'Agente chefe pausado. A OS em execução será concluída; as próximas não serão iniciadas.'};}
  await chrome.storage.local.remove('batch');return {message:'Lote interrompido. A OS aberta foi preservada.'};
 }
 async function restoreAutomaticBatch(){
@@ -847,14 +965,14 @@ async function restoreAutomaticBatch(){
  if(!await chrome.alarms.get('rco-imas-batch'))await chrome.alarms.create('rco-imas-batch',{when:Date.now()+2000});
 }
 
-// Modo automático REMOVIDO (3.0.5): a extensão só trabalha quando você clica em Executar.
+// Comandos manuais preservados como alternativa técnica ao agente chefe.
 async function queueRetry(){let last;for(let i=0;i<3;i++){try{return await queue(25000);}catch(e){last=e;if(/Entre como Supervisor|403/.test(e.message))break;await wait(5000);}}throw last;}
 // ===== 3.0: três botões de execução + Forçar fechamento (somente quando o supervisor clica) =====
 async function runGroup(group){
  const jobs=(await queue()).jobs.filter(j=>!isProtected(j)&&(j.ready||canRetryClosing(j)));
  const isCorr=j=>j.report?.origin==='app';
  const pick=group==='create'?jobs.filter(j=>j.phase==='criar'):group==='corrective'?jobs.filter(j=>j.phase==='encerrar'&&isCorr(j)):jobs.filter(j=>j.phase==='encerrar'&&!isCorr(j));
- const nome=group==='create'?'OS corretivas para criar no IMAS':group==='corrective'?'OS corretivas para concluir':'OS preventivas liberadas';
+ const nome=group==='create'?'OS para criar no IMAS':group==='corrective'?'OS corretivas para concluir':'OS preventivas liberadas';
  if(!pick.length)return {message:'Nenhuma das '+nome+' está pronta na fila.'};
  await audit('execucao-iniciada',{group,total:pick.length});
  return startAutomaticBatch(pick.map(j=>j.publicId),group==='create'?'create':'close');
@@ -907,14 +1025,103 @@ async function verifyReview(publicId){
  finally{running=false;activeRun=null;}
 }
 
+// ===== AGENTE CHEFE: admission/lease -> execute -> independent persisted audit =====
+let chiefChecking=false,chiefIdentityPromise=null;
+async function chiefIdentity(){
+ if(!chiefIdentityPromise)chiefIdentityPromise=(async()=>{const stored=await chrome.storage.local.get(['chiefDeviceId','chiefLeaseId']);const identity={deviceId:stored.chiefDeviceId||crypto.randomUUID(),leaseId:stored.chiefLeaseId||crypto.randomUUID()};await chrome.storage.local.set({chiefDeviceId:identity.deviceId,chiefLeaseId:identity.leaseId});return identity;})();
+ return chiefIdentityPromise;
+}
+async function chiefPulse(state,step,lastError='',publicId=''){
+ const identity=await chiefIdentity();
+ const result=await message(await rcoTab(),{action:'chief',body:{...identity,version:chrome.runtime.getManifest().version,state,step,lastError,publicId}});
+ await chrome.storage.local.set({chiefStatus:{state:result.claimed?state:'blocked',step:result.claimed?step:'Outro computador mantém a execução',lastError,at:new Date().toISOString()}});
+ return result.claimed;
+}
+function chiefEligible(job){const now=new Intl.DateTimeFormat('sv-SE',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date()).replace(' ','T');const futureClose=job.phase==='encerrar'&&job.report?.completedAt>now;const preventive=job.phase==='encerrar'&&job.report?.origin==='sistema';return (!futureClose||preventive)&&job.ready&&job.approvalRequest?.state==='queued'&&!isProtected(job)&&!OS_TESTES_ANTERIORES.has(job.externalNumber);}
+function chiefCanInspect(job){return job.phase==='encerrar'&&!isProtected(job)&&canRetryClosing(job);}
+async function chiefReadClosure(job){
+ // This path performs no preparation, upload or Save. Do not infer success from a click.
+ const candidate=safeJob({...job,ready:true,errors:[]});
+ running=true;activeRun={runId:crypto.randomUUID(),requestId:job.approvalRequest?.requestId,publicId:job.publicId,version:chrome.runtime.getManifest().version,state:'running',step:'Agente chefe: conferir IMAS sem alterar',events:[],controls:[]};
+ try{
+  let tab=await imasTab();if(new URL(tab.pendingUrl||tab.url).pathname==='/ordem_servico_form.php')tab=await newAutomationTab();
+  await openForm(tab,candidate);await chrome.tabs.reload(tab.id);await loaded(tab.id);activeRun.tabId=tab.id;
+  await engine(tab,'ensurePhotoSection',candidate);await wait(2000);
+  const [identity]=await chrome.scripting.executeScript({target:{tabId:tab.id},func:number=>({valid:location.origin==='https://admin.rcoengenharia.com'&&document.getElementById('id_ordem_servico')?.value===number&&document.getElementById('id_cliente')?.value==='91',status:String(document.getElementById('id_ordem_servico_status')?.value||''),idle:Number(window.jQuery?.active||0)===0}),args:[job.externalNumber]});
+  if(!identity?.result?.valid||!identity.result.idle)throw Error('Identidade ou carregamento do IMAS não confirmado. Nenhuma alteração autorizada.');
+  const persisted=await engine(tab,'audit',{...candidate,verifyUploaded:true}),linked=await engine(tab,'linkedPhotos',candidate);
+  if(persisted.ok&&linked.count===candidate.report.photos.length){
+   await message(await rcoTab(),{action:'baixar',publicId:job.publicId,osNumber:job.externalNumber});
+   activeRun.state='completed';await trace('Agente chefe: encerramento confirmado na releitura','ok');await syncDiagnostic(true);
+   await audit('chefe-baixa-confirmada',{publicId:job.publicId,osNumber:job.externalNumber,photos:linked.count});return {completed:true};
+  }
+  activeRun.state='review';await trace('Agente chefe: resultado exige retomada ou revisão','ok',{message:`Status IMAS ${identity.result.status}; fotos ${linked.count}/${candidate.report.photos.length}. Nenhuma foto enviada nesta conferência.`});await syncDiagnostic(true);
+  return {completed:false,open:identity.result.status==='1',count:linked.count,expected:candidate.report.photos.length};
+ }catch(e){activeRun.state='review';await trace('Agente chefe: dúvida técnica na leitura','failed',{message:e.message});await syncDiagnostic(true);throw e;}
+ finally{running=false;activeRun=null;}
+}
+async function archiveChiefPending(publicId){
+ const {pending,chiefPendingHistory=[]}=await chrome.storage.local.get(['pending','chiefPendingHistory']);
+ if(!pending||pending.publicId!==publicId)return;
+ await chrome.storage.local.set({chiefPendingHistory:[...chiefPendingHistory,{...pending,archivedAt:new Date().toISOString(),reason:'Agente chefe conferiu a OS persistida; tentativas e fotos preservadas.'}].slice(-30)});
+ await chrome.storage.local.remove('pending');
+}
+async function chiefTick(){
+ if(chiefChecking)return;
+ chiefChecking=true;
+ try{
+  const state=await chrome.storage.local.get(['chiefPaused','batch','pending','closeAttempts','saveAttempts','chiefInspected','chiefRetries']);
+  if(state.chiefPaused){await chiefPulse('paused','Agente pausado pelo supervisor');return;}
+  if(!await chiefPulse(running||automaticBatchRunning?'running':'checking',activeRun?.step||'Conferir fila e resultados no IMAS'))return;
+  if(running||automaticBatchRunning||state.batch?.state==='executando')return;
+  const data=await queue(); // server admission and immutable approval fingerprint remain authoritative
+  await restoreAcknowledgedCreation(data.jobs);
+  const pending=(await chrome.storage.local.get('pending')).pending;
+  if(pending&&await recoverConfirmedCreation(pending,data.jobs)){
+   await releaseLinkedCreation((await queue()).jobs);
+   await chiefPulse('idle','Criação vinculada; aguardando execução do colaborador','',pending.publicId);return;
+  }
+  const inspected=state.chiefInspected||{},retries=state.chiefRetries||{};
+  const failed=data.jobs.find(j=>chiefCanInspect(j)&&(!pending||pending.publicId===j.publicId)&&!inspected[j.approvalRequest.requestId]);
+  if(failed){
+   const proof=await chiefReadClosure(failed);
+   inspected[failed.approvalRequest.requestId]=new Date().toISOString();await chrome.storage.local.set({chiefInspected:inspected});
+   if(proof.completed){await archiveChiefPending(failed.publicId);await chiefPulse('idle','Baixa confirmada pela leitura do IMAS','',failed.publicId);return;}
+   const marker=state.closeAttempts?.[failed.publicId];
+   const retryKey=failed.publicId+':'+failed.approvalRequest.fingerprint;
+   const noUploadAttempt=proof.count===0&&!marker&&!state.saveAttempts?.[failed.publicId];
+   if(proof.open&&(proof.count===proof.expected||noUploadAttempt)&&!retries[retryKey]){
+    retries[retryKey]=new Date().toISOString();await chrome.storage.local.set({chiefRetries:retries});
+    await retryApprovedClosing(failed);await archiveChiefPending(failed.publicId);
+    await chiefPulse('idle','Retomada segura na fila; fotos existentes preservadas','',failed.publicId);return;
+   }
+   await archiveChiefPending(failed.publicId);
+   await chiefPulse('blocked','Dúvida técnica — conferir OS em Relatórios',`OS ${failed.externalNumber}: status ou fotos divergentes. Nenhum reenvio automático.`,failed.publicId);return;
+  }
+  if(pending){await chiefPulse('blocked','Criação ou gravação sem confirmação',`Referência ${pending.reference||pending.externalNumber||pending.publicId}: não repetir criação ou fotos sem comprovação.`,pending.publicId);return;}
+  const eligible=data.jobs.filter(chiefEligible);
+  const preventive=eligible.filter(j=>j.phase==='encerrar'&&j.report.origin!=='app');
+  const corrective=eligible.filter(j=>j.phase==='encerrar'&&j.report.origin==='app');
+  const creates=eligible.filter(j=>j.phase==='criar');
+  const next=preventive[0]||creates[0]||corrective[0];
+  if(!next){await chiefPulse('idle','Aguardando envio dos colaboradores');return;}
+  // One request per cycle; creation always stops after returning the official number.
+  await startAutomaticBatch([next.publicId],next.phase==='criar'?'create':'close');
+  await chiefPulse('running',next.phase==='criar'?'Criar e conferir número oficial':'Encerrar e conferir dados e fotos','',next.publicId);
+ }catch(e){await chrome.storage.local.set({chiefStatus:{state:'error',step:'Aguardando conexão ou revisão técnica',lastError:String(e.message).slice(0,300),at:new Date().toISOString()}});await chiefPulse('error','Aguardando conexão ou revisão técnica',String(e.message).slice(0,300)).catch(()=>{});await audit('chefe-pendente',{message:String(e.message).slice(0,300)});}
+ finally{chiefChecking=false;}
+}
+async function installChief(){await chiefIdentity();await chrome.alarms.create('rco-chief',{periodInMinutes:0.5});await chrome.alarms.create('rco-chief-wake',{when:Date.now()+1000});}
+
 chrome.alarms.onAlarm.addListener(alarm=>{
+ if(['rco-chief','rco-chief-wake'].includes(alarm.name))chiefTick().catch(e=>audit('chefe-falhou',{message:e.message}));
  if(alarm.name==='rco-imas-batch')automaticBatchStep().catch(e=>audit('lote-bloqueado',{message:e.message}));
 });
 async function boot(){
  // Limpa resíduos das versões de teste (gravação, autoatualização, autorizações pontuais).
  await chrome.alarms.clear('rco-source-update');await chrome.alarms.clear('rco-imas');
  await chrome.storage.local.remove(['finalRecording','reviewedReprocess','reviewed166Final','reset323140Authorized','tabRecovery323140','photoSectionRecovery','localUploadTest','completeD6Test','navigationRecoveryD6','manual323963Checked','schedulePolicy','updateStatus','scheduleEnabled','scheduledBacklogPending','lastScheduleAt']);
- await chrome.alarms.clear('rco-cycle');await chrome.alarms.clear('rco-intake');await chrome.storage.local.remove(['autoSendEnabled','nextCycleAt','lastCycle']);await reconnectRco();
+ await chrome.alarms.clear('rco-cycle');await chrome.alarms.clear('rco-intake');await chrome.storage.local.remove(['autoSendEnabled','nextCycleAt','lastCycle']);await reconnectRco();await installChief();
 }
 chrome.runtime.onInstalled.addListener(()=>boot().catch(e=>audit('inicializacao-falhou',{message:e.message})));
 chrome.runtime.onStartup.addListener(()=>boot().catch(e=>audit('inicializacao-falhou',{message:e.message})));
@@ -938,6 +1145,7 @@ chrome.runtime.onMessage.addListener((m,sender,respond)=>{
  if(!fromPopup&&!['preview','batch','save-creation','create-save','close-save','review-check','intake','run-create','run-close-corrective','run-close-preventive','force-close','resume-close'].includes(m.action))return;
  const startedAt=Date.now();
  (async()=>{
+  if(chiefChecking&&!['queue','status','intake','batch-stop'].includes(m.action))throw Error('Agente chefe conferindo a OS. Aguarde a conclusão da leitura.');
   if(['preview','create-save','close-save','save-creation','release'].includes(m.action)&&(await chrome.storage.local.get('batch')).batch?.state==='executando')throw Error('O lote está executando. Pare o lote antes de iniciar outra operação.');
   switch(m.action){
    case 'queue':{const data=await queue();return {jobs:data.jobs.map(j=>({publicId:j.publicId,reference:j.reference,externalNumber:j.externalNumber||'',phase:j.phase,ready:j.ready,retryable:canRetryClosing(j),errors:j.errors,origin:j.report?.origin||'',state:j.report?.automationState||'',approved:!!j.approvalRequest,protectedOs:isProtected(j)}))};}
@@ -945,7 +1153,8 @@ chrome.runtime.onMessage.addListener((m,sender,respond)=>{
    case 'create-save':return createAndSave(m.publicId);
    case 'close-save':return closeAndSave(m.publicId);
    case 'save-creation':if(m.confirmed===true)return savePrepared(m.publicId);break;
-   case 'intake':return {message:'Aprovação registrada. Abra a extensão e clique em Executar quando quiser enviar ao IMAS.'};
+   case 'intake':await chrome.alarms.create('rco-chief-wake',{when:Date.now()+1000});return {message:'OS recebida pelo agente chefe. Acompanhe o andamento na plataforma.'};
+   case 'chief-resume':await chrome.storage.local.set({chiefPaused:false});await installChief();return {message:'Agente chefe ativado.'};
    case 'review-check':return verifyReview(m.publicId);
    case 'batch':return startAutomaticBatch(m.publicIds);
    case 'batch-stop':return stopAutomaticBatch();
@@ -963,7 +1172,7 @@ chrome.runtime.onMessage.addListener((m,sender,respond)=>{
     await chrome.storage.local.remove('pending');await audit('os-liberada-manual',{publicId:pending.publicId,state:pending.state});
     return {message:`OS ${pending.reference||pending.publicId} liberada (estado: ${pending.state}). Confira no IMAS antes de reenviar; tentativas de salvar/enviar continuam registradas.`};
    }
-   case 'status':return {...await chrome.storage.local.get(['pending','batch','contractState']),maxFotos:CONFIG.maxFotosSemRevisao,running:running||automaticBatchRunning};
+   case 'status':return {...await chrome.storage.local.get(['pending','batch','contractState','chiefStatus','chiefPaused']),maxFotos:CONFIG.maxFotosSemRevisao,running:running||automaticBatchRunning};
   }
   throw Error('Ação não disponível.');
  })().then(respond).catch(async e=>{if(m.action==='close-save'){try{await recordClosingPreflightFailure(m.publicId,e,startedAt);}catch{}}respond({error:e.message,message:'Erro: '+e.message});});return true;
@@ -974,3 +1183,5 @@ async function reconnectRco(){for(const tab of await chrome.tabs.query({url:RCO+
 chrome.alarms.clear('rco-cycle');chrome.alarms.clear('rco-intake');
 reconnectRco().then(()=>recoverCreationOk()).catch(e=>audit('ok-criacao-pendente',{message:e.message}));
 restoreAutomaticBatch().catch(e=>audit('lote-bloqueado',{message:e.message}));
+
+installChief().catch(e=>audit('chefe-inicializacao-pendente',{message:e.message}));

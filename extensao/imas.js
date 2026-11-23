@@ -203,12 +203,12 @@
     // No change event: the site's event handler could upload immediately.
     input.files=transfer.files;if(input.files.length!==transfer.files.length)throw Error('A seleção não foi confirmada no campo de Fotos.');return {selected:input.files.length,uploaded:false,selector:selector(input)};
   }
-  async function audit(job){const errors=[],fields={};for(const [key,value]of Object.entries(expected(job))){if(job.verifyUploaded&&key==='creationJustification')continue;try{const actual=read(field(key));fields[key]=actual;if(!matches(actual,value))errors.push(key);}catch(e){errors.push(e.message);}}
+  async function audit(job){const errors=[],fields={},warnings=[];const persistedCreation=job.phase==='criar'&&job.persistedCreation===true;for(const [key,value]of Object.entries(expected(job))){if((job.verifyUploaded||persistedCreation)&&key==='creationJustification')continue;try{const actual=read(field(key));fields[key]=actual;if(persistedCreation&&key==='subject'&&!norm(actual)){warnings.push('subject: campo de alteração vazio na reabertura; assunto conferido antes de Salvar.');continue;}if(!matches(actual,value))errors.push(key);}catch(e){errors.push(e.message);}}
     for(const key of ['start','end',...(job.phase==='criar'?['opened']:[])]){const value=key==='start'?job.report.executionStartedAt:key==='end'?job.report.completedAt:job.report.imasOpenedAt;const [date,time]=split(value);try{const dateElement=field(key+'Date');if(dateElement.value!==(dateElement.type==='date'?date:date.split('-').reverse().join('/')))errors.push(key+'Date');if(field(key+'Time').value!==time)errors.push(key+'Time');}catch(e){errors.push(e.message);}}
-    const e=field('observation',true),editor=observationEditors();let stored=e?.value;if(e&&document.getElementById('cke_obs')){const parsed=document.createElement('div');parsed.innerHTML=e.value;stored=editorText(parsed);}if(e&&!sameObservation(stored,job.report.observations))errors.push('observation');if(!job.verifyUploaded&&!(e&&document.getElementById('cke_obs')&&sameObservation(stored,job.report.observations))&&(editor.length>1||(editor.length===1&&!sameObservation(editorText(editor[0]),job.report.observations))||(!editor.length&&(!e||!visible(e)))))errors.push('observationEditor');
-    if(!job.verifyUploaded&&document.getElementById('cke_obs')){let body;try{const box=document.getElementById('cke_obs');body=box.querySelector('iframe')?.contentDocument?.body||box.querySelector('[contenteditable]');}catch{}if(!body||!sameObservation(editorText(body),job.report.observations))errors.push('observationEditor');}
+    const e=field('observation',true),editor=observationEditors();let stored=e?.value;if(e&&document.getElementById('cke_obs')){const parsed=document.createElement('div');parsed.innerHTML=e.value;stored=editorText(parsed);}if((persistedCreation&&!e)||(e&&!sameObservation(stored,job.report.observations)))errors.push('observation');if(!job.verifyUploaded&&!persistedCreation&&!(e&&document.getElementById('cke_obs')&&sameObservation(stored,job.report.observations))&&(editor.length>1||(editor.length===1&&!sameObservation(editorText(editor[0]),job.report.observations))||(!editor.length&&(!e||!visible(e)))))errors.push('observationEditor');
+    if(!job.verifyUploaded&&!persistedCreation&&document.getElementById('cke_obs')){let body;try{const box=document.getElementById('cke_obs');body=box.querySelector('iframe')?.contentDocument?.body||box.querySelector('[contenteditable]');}catch{}if(!body||!sameObservation(editorText(body),job.report.observations))errors.push('observationEditor');}
     let photos=0;if(job.phase==='encerrar'){try{photos=job.verifyUploaded?linkedPhotos(job).count:photoInput().files.length;if(photos!==job.report.photos.length)errors.push(`Quantidade de fotos (${photos} no IMAS, ${job.report.photos.length} no app)`);}catch(e){errors.push(e.message);}}
-    return {ok:errors.length===0,errors,fields,photos,saveClicked:false,uploadClicked:false};
+    return {ok:errors.length===0,errors,fields,warnings,photos,saveClicked:false,uploadClicked:false};
   }
   function closingIdentity(job){
     if(job.phase!=='encerrar'||job.externalNumber==='323902'||job.publicId==='4e9bd0d3-5e4f-4f25-8301-2942d04dc0d1')throw Error('Esta OS está protegida ou não é de encerramento.');
@@ -386,6 +386,19 @@
     if(job.locateOnly){if(!/^[-a-zA-Z0-9]{1,80}$/.test(job.saveToken||''))throw Error('Identificador de salvamento inválido.');button.setAttribute('data-rco-save',job.saveToken);return {selector:`[data-rco-save="${job.saveToken}"]`,tag:button.tagName,type:button.type||''};}
     button.click();return {clicked:true};
   }
+  // Persisted identity is independent from an editor's transient state.
+  // The controller invokes this only with a confirmed pre-save audit and Save/OK receipt.
+  async function creationRecord(job){
+    if(job?.phase!=='criar')throw Error('Conferência de criação inválida.');
+    const result=await audit({...job,persistedCreation:true});
+    let number=null;
+    if(location.origin==='https://admin.rcoengenharia.com'&&location.pathname==='/ordem_servico_form.php'){
+      const code=field('code',true)?.value,urlId=new URL(location.href).searchParams.get('id_ordem_servico');
+      const client=field('clientCode',true)?.value,unit=field('unit',true);
+      if(/^[1-9]\d{0,11}$/.test(code||'')&&code===urlId&&client==='91'&&unit&&matches(read(unit),job.fixed.unit))number=code;
+    }
+    return {...result,number};
+  }
   async function savedNumber(job){if(location.origin!=='https://admin.rcoengenharia.com'||location.pathname!=='/ordem_servico_form.php'||!job)return null;if(field('clientCode',true)?.value!=='91'||!(await audit(job)).ok)return null;const code=field('code',true)?.value,urlId=new URL(location.href).searchParams.get('id_ordem_servico');if(/^[1-9]\d*$/.test(code||'')&&/^[1-9]\d*$/.test(urlId||'')&&code!==urlId)return null;return [code,urlId].find(v=>/^[1-9]\d*$/.test(v||''))||null;}
-  globalThis.RcoImas={prepare,observations,addPhoto,audit,inventory,navigate,diagnostics,saveCreation,savedNumber,linkedPhotos,closingTarget,closingSelection,photoUploadButton,waitPhotoUploadButton,ensurePhotoSection,photoGallery};
+  globalThis.RcoImas={prepare,observations,addPhoto,audit,inventory,navigate,diagnostics,saveCreation,savedNumber,creationRecord,linkedPhotos,closingTarget,closingSelection,photoUploadButton,waitPhotoUploadButton,ensurePhotoSection,photoGallery};
 })();

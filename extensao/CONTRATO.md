@@ -27,7 +27,7 @@ Versão do contrato: **schemaVersion 1** · Extensão: **2.4.0**
 {
   "schemaVersion": 1,
   "appVersion": "2026-10-09.1",
-  "minExtensionVersion": "2.3.0",
+  "minExtensionVersion": "3.1.0",
   "config": {
     "maxFotosSemRevisao": 5,
     "osProtegidas": ["323902"],

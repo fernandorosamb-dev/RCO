@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "RCO para IMAS",
-  "version": "3.0.5",
-  "description": "Cria, encerra (fotos + Salvar) e dá baixa das OS do app RCO no IMAS, uma por vez, com conferência antes e depois.",
+  "version": "3.1.10",
+  "description": "Agente chefe RCO: cria e encerra OS da fila automaticamente, confere o registro no IMAS e preserva fotos nas retomadas.",
   "permissions": [
     "tabs",
     "scripting",

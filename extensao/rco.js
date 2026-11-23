@@ -1,20 +1,21 @@
 (() => {
   const bridgeVersion=chrome.runtime.getManifest().version;
   if(globalThis.__rcoBridgeInstalled===bridgeVersion)return;globalThis.__rcoBridgeInstalled=bridgeVersion;
+  const preventiveOpeningHeaders={'X-RCO-Preventive-Opening':'1'};
   const RCO='https://rco-manutencao.fernandorosa-mb.chatgpt.site';
   if(location.origin!==RCO)return;
-  async function get(path,body) {
-    const response=await fetch(path,{cache:'no-store',...(body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{})});
+  async function get(path,body,headers={}) {
+    const response=await fetch(path,{cache:'no-store',headers:{...headers,...(body?{'Content-Type':'application/json'}:{})},...(body?{method:'POST',body:JSON.stringify(body)}:{})});
     const result=await response.json();if(!response.ok)throw Error(result.error||'Entre como Supervisor no RCO.');return result;
   }
   chrome.runtime.onMessage.addListener((message,sender,respond)=>{
     if(globalThis.__rcoBridgeInstalled!==bridgeVersion)return;
-    if(sender.id!==chrome.runtime.id||!['fila','foto','diagnostic','vincular','baixar','approval-claim','approval-retry','contract'].includes(message.action))return;
+    if(sender.id!==chrome.runtime.id||!['fila','foto','diagnostic','vincular','baixar','approval-claim','approval-retry','contract','chief'].includes(message.action))return;
     (async()=>{
       if(message.action==='baixar'){const response=await fetch('/api/reports/downloaded',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({publicId:message.publicId,expectedNumber:message.osNumber})});const result=await response.json();if(!response.ok)throw Error(result.error||'Baixa não confirmada.');window.dispatchEvent(new Event('rco-imas-updated'));return result;}
       if(message.action==='vincular'){const result=await get('/api/imas/link',{publicId:message.publicId,osNumber:message.osNumber});window.dispatchEvent(new Event('rco-imas-updated'));return result;}
       if(message.action==='approval-retry'){if(!/^[a-f0-9]{64}$/.test(message.fingerprint||''))throw Error('Aprovação inválida.');const result=await get('/api/imas/approve',{action:'retry',publicId:message.publicId,fingerprint:message.fingerprint});window.dispatchEvent(new Event('rco-imas-updated'));return result;}
-      if(message.action==='approval-claim'){const result=await get('/api/imas/approve',{action:'claim',publicId:message.publicId,requestId:message.requestId});window.dispatchEvent(new Event('rco-imas-updated'));return result;}
+      if(message.action==='approval-claim'){const result=await get('/api/imas/approve',{action:'claim',publicId:message.publicId,requestId:message.requestId},preventiveOpeningHeaders);window.dispatchEvent(new Event('rco-imas-updated'));return result;}
       if(message.action==='contract'){
         // Contrato publicado pelo app (ver CONTRATO.md). Se o app ainda não tem o endpoint, devolve {missing:true}.
         const response=await fetch('/api/imas/contract',{cache:'no-store'});
@@ -23,7 +24,8 @@
         if(!response.ok||!type.includes('json'))throw Error('Contrato do app indisponível (HTTP '+response.status+'). Entre como Supervisor no RCO.');
         return response.json();
       }
-      if(message.action==='fila')return get('/api/imas/queue');
+      if(message.action==='chief')return get('/api/imas/chief',message.body);
+      if(message.action==='fila')return get('/api/imas/queue',undefined,preventiveOpeningHeaders);
       if(message.action==='diagnostic'){const result=await get('/api/imas/diagnostics',message.run);if(['failed','completed'].includes(message.run?.state))window.dispatchEvent(new Event('rco-imas-updated'));return result;}
       // Only the authenticated photo endpoint; never arbitrary URLs supplied by pages.
       if(!/^\/api\/photos\/[a-zA-Z0-9-]+$/.test(message.url))throw Error('Endereço de foto inválido.');
