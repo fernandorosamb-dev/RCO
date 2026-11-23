@@ -1,5 +1,5 @@
-// RCO worker — versão 3.0.2 (carregado direto pelo Chrome, sem schedule.js)
-chrome.storage.local.set({bgBuild:'3.0.2',workerBoot:{step:'background.js executou (direto)',at:new Date().toISOString(),version:'3.0.2'},workerStartup:{version:'3.0.2',at:new Date().toISOString(),entry:'background.js',state:'ready',error:''}}).catch(()=>{});
+// RCO worker — versão 3.0.5 (carregado direto pelo Chrome, sem schedule.js)
+chrome.storage.local.set({bgBuild:'3.0.5',workerBoot:{step:'background.js executou (direto)',at:new Date().toISOString(),version:'3.0.5'},workerStartup:{version:'3.0.5',at:new Date().toISOString(),entry:'background.js',state:'ready',error:''}}).catch(()=>{});
 // ===== PARÂMETROS DO PROCESSO (único lugar para ajustar) =====
 const CONFIG={
   maxFotosSemRevisao:5,             // acima disso a OS vai para revisão (relatório final ≤ 14 MB)
@@ -15,11 +15,10 @@ const OS_TESTES_ANTERIORES=new Set(['323080','323081','323082','323140','323145'
 
 const DATA_HORA=/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 function isProtected(job){return OS_PROTEGIDAS.has(job?.externalNumber)||PUBLICID_PROTEGIDOS.has(job?.publicId);}
-const FORCED=new Set(); // OS com fechamento forçado pelo supervisor (ignora só a trava de aprovação)
 function safeJob(job) {
   if(!job)throw Error('OS não encontrada na fila do app.');
   if(isProtected(job))throw Error(`OS ${job.externalNumber||job.publicId} protegida pelo supervisor.`);
-  if((!job.ready||job.errors?.length)&&!FORCED.has(job.publicId))throw Error('Corrija os campos pendentes da OS no app.');
+  if(!job.ready||job.errors?.length)throw Error('Corrija os campos pendentes da OS no app.');
   if(job.saveAllowed!==false||job.photoUploadAllowed!==false||job.mode!=='validation')throw Error('Pacote do app incompatível com esta extensão.');
   if(!['criar','encerrar'].includes(job.phase))throw Error('Etapa inválida.');
   if(job.phase==='criar'&&job.externalNumber)throw Error('OS já vinculada. Não criar novamente.');
@@ -84,7 +83,7 @@ function applyContractConfig(config={}){
 }
 async function checkContract(){
   if(Date.now()-contractCheckedAt<60000)return;
-  const c=await withTimeout((async()=>message(await rcoTab(),{action:'contract'}))(),4500,'A aba do RCO não respondeu ao pedido do contrato. Atualize a aba do RCO (F5), confira que está logada como Supervisor e abra o popup de novo.');
+  const c=await withTimeout((async()=>message(await rcoTab(),{action:'contract'}))(),10000,'A aba do RCO não respondeu ao pedido do contrato. Atualize a aba do RCO (F5), confira que está logada como Supervisor e abra o popup de novo.');
   if(!c||c.missing){
     contractCheckedAt=Date.now();
     await chrome.storage.local.set({contractState:{state:'ausente',at:new Date().toISOString(),note:'App sem /api/imas/contract — usando valores locais.'}});
@@ -95,30 +94,71 @@ async function checkContract(){
   if(bad){
     await chrome.storage.local.set({contractState:{state:'incompatível',at:new Date().toISOString(),note:bad,appVersion:c.appVersion||''}});
     await audit('contrato-incompativel',{message:bad});
-    throw Error('O app RCO mudou: '+bad+'. Nada foi alterado no IMAS. Atualize a extensão (peça ao Claude para comparar com o CONTRATO.md).');
+    throw Error('O app RCO mudou: '+bad+'. Nada foi alterado no IMAS. Atualize os arquivos da extensão e recarregue no Chrome.');
   }
   applyContractConfig(c.config);
   contractCheckedAt=Date.now();
   await chrome.storage.local.set({contractState:{state:'ok',at:new Date().toISOString(),schema:c.schemaVersion,appVersion:c.appVersion||'',note:''}});
 }
-async function queue(timeout=4500){await checkContract();return withTimeout((async()=>message(await rcoTab(),{action:'fila'}))(),timeout,'A aba do RCO não respondeu ao pedido da fila de OS. Atualize a aba do RCO (F5), confira que está logada como Supervisor e abra o popup de novo.');}
+// Libera apenas o bloqueio local de uma criação já salva E vinculada ao mesmo número.
+// Não navega no IMAS, não apaga tentativas e não altera o estado de conclusão no RCO.
+async function releaseLinkedCreation(jobs){
+ if(running||automaticBatchRunning)return false;
+ const {pending,creationReceipts={}}=await chrome.storage.local.get(['pending','creationReceipts']);
+ if(!pending||pending.phase!=='criar'||!pending.saveAttempted||!pending.successAcknowledged||!/^\d+$/.test(pending.externalNumber||''))return false;
+ const job=jobs.find(j=>j.publicId===pending.publicId);
+ if(!job||job.phase!=='encerrar'||job.externalNumber!==pending.externalNumber)return false;
+ const current=(await chrome.storage.local.get('pending')).pending;
+ if(!current||current.publicId!==pending.publicId||current.externalNumber!==pending.externalNumber||current.at!==pending.at)return false;
+ await chrome.storage.local.set({creationReceipts:{...creationReceipts,[pending.publicId]:{osNumber:pending.externalNumber,at:new Date().toISOString(),state:job.report?.status||'',source:'criação e vínculo confirmados'}}});
+ if(running||automaticBatchRunning)return false;
+ const last=(await chrome.storage.local.get('pending')).pending;
+ if(!last||last.publicId!==pending.publicId||last.externalNumber!==pending.externalNumber||last.at!==pending.at)return false;
+ await chrome.storage.local.remove('pending');
+ await audit('criacao-vinculada-liberada',{publicId:pending.publicId,osNumber:pending.externalNumber,message:'Criação confirmada no RCO. Bloqueio local liberado; encerramento permanece pendente.'});
+ return true;
+}
+let queueInFlight=null;
+async function queue(timeout=25000){
+ if(queueInFlight)return queueInFlight;
+ queueInFlight=(async()=>{
+  await checkContract();
+  const data=await withTimeout((async()=>message(await rcoTab(),{action:'fila'}))(),timeout,'A consulta da fila RCO não respondeu no prazo. Nenhuma criação, foto ou salvamento foi repetido por esta espera.');
+  if(!Array.isArray(data?.jobs))throw Error('Resposta de fila inválida. Nenhuma OS será executada.');
+  await releaseLinkedCreation(data.jobs);return data;
+ })();
+ try{return await queueInFlight;}finally{queueInFlight=null;}
+}
+// A automação usa sua própria aba; nunca fecha nem escolhe um formulário do usuário.
+async function newAutomationTab(){
+ const requestedUrl=IMAS+'ordem_servico_rel.php';
+ const created=await chrome.tabs.create({url:requestedUrl,active:true});
+ const tab={...created,url:created.pendingUrl||created.url||requestedUrl};
+ await chrome.storage.local.set({imasAutomationTabId:tab.id});
+ await audit('aba-automacao-aberta',{tabId:tab.id,message:'Aba própria criada. As abas e edições existentes foram preservadas.'});
+ return tab;
+}
 async function imasTab(){
- const tabs=await chrome.tabs.query({url:IMAS+'*'});
- if(!tabs.length){
-  // IMAS fechado: abre a aba e espera carregar (a URL da aba recém-criada pode vir vazia no início).
-  const created=await chrome.tabs.create({url:IMAS+'login.php',active:true});
-  for(let i=0;i<60;i++){const t=await chrome.tabs.get(created.id);if(t.status==='complete'&&(t.url||'').startsWith(IMAS))return t;await wait(500);}
-  return chrome.tabs.get(created.id);
+ const {imasAutomationTabId,pending}=await chrome.storage.local.get(['imasAutomationTabId','pending']);
+ for(const id of [...new Set([imasAutomationTabId,pending?.tabId].filter(Number.isInteger))]){
+  try{const tab=await chrome.tabs.get(id);if(new URL(tab.pendingUrl||tab.url).origin===new URL(IMAS).origin){await chrome.storage.local.set({imasAutomationTabId:id});return tab;}}catch{}
  }
- // Várias abas do IMAS: usa a mais recente e fecha as demais sem formulário aberto, em vez de travar.
- if(tabs.length>1){
-  const keep=tabs.find(t=>/ordem_servico_form\.php/.test(t.url||''))||tabs.sort((a,b)=>(b.lastAccessed||0)-(a.lastAccessed||0))[0];
-  for(const t of tabs)if(t.id!==keep.id&&!/ordem_servico_form\.php/.test(t.url||''))await chrome.tabs.remove(t.id).catch(()=>{});
-  const left=await chrome.tabs.query({url:IMAS+'*'});
-  if(left.length!==1)throw Error('Há mais de uma aba do IMAS com formulário aberto. Feche as extras e tente de novo.');
-  return left[0];
- }
- return tabs[0];
+ return newAutomationTab();
+}
+async function preserveOtherForm(tab,job){
+ await loaded(tab.id);
+ const current=await chrome.tabs.get(tab.id),url=new URL(current.pendingUrl||current.url);
+ if(url.origin!==new URL(IMAS).origin)throw Error('A aba da automação mudou de site.');
+ if(url.pathname!=='/ordem_servico_form.php')return false;
+ const number=url.searchParams.get('id_ordem_servico')||'';
+ if(job.phase==='encerrar'&&number===job.externalNumber)return false;
+ if(job.phase==='criar'&&(!number||number==='0'))return false;
+ const previousId=tab.id,next=await newAutomationTab();Object.assign(tab,next);
+ const {pending}=await chrome.storage.local.get('pending');
+ if(pending?.publicId===job.publicId&&pending.tabId===previousId&&pending.state==='preparando')await chrome.storage.local.set({pending:{...pending,tabId:next.id}});
+ if(activeRun?.publicId===job.publicId)activeRun.tabId=next.id;
+ await audit('formulario-anterior-preservado',{publicId:job.publicId,previousTabId:previousId,tabId:next.id,message:'Outra OS estava aberta. Formulário preservado; navegação continua na aba própria.'});
+ return true;
 }
 function imasDocumentReady(expectedUrl){
  try{
@@ -129,15 +169,16 @@ function imasDocumentReady(expectedUrl){
  }catch{return {ready:false};}
 }
 async function loaded(id){
+ const getTab=async()=>{try{return await chrome.tabs.get(id);}catch{const error=Error('A aba IMAS foi fechada durante a etapa. Estado e tentativas preservados; nenhuma gravação será repetida automaticamente.');error.tabUnavailable=true;throw error;}};
  let lastError='',lastProbe=null;
  const documentReady=async tab=>{try{const [r]=await chrome.scripting.executeScript({target:{tabId:id},func:imasDocumentReady,args:[tab.pendingUrl||tab.url]});lastProbe=r?.result;lastError='';return lastProbe?.ready===true;}catch(e){lastError=String(e.message||e).slice(0,200);return false;}};
  for(let i=0;i<360;i++){
-  const t=await chrome.tabs.get(id);
+  const t=await getTab();
   // Do not wait for images/background requests after the actual document is ready.
   if((i%4===0||t.status==='complete')&&await documentReady(t))return;
   await wait(250);
  }
- const t=await chrome.tabs.get(id);if(await documentReady(t))return;
+ const t=await getTab();if(await documentReady(t))return;
  await audit('imas-espera-falhou',{tabId:id,path:lastProbe?.path||'',readyState:lastProbe?.readyState||'',reason:lastError||'Documento ainda não disponível'});
  if(/permission|cannot access|not allowed/i.test(lastError))throw Error('O Chrome bloqueou o acesso à página do IMAS. Confira Acesso a sites na extensão e recarregue a página. Detalhe: '+lastError);
  throw Error('O documento do IMAS não ficou pronto em 90 segundos. Nenhum clique foi executado nesta espera.'+(lastError?' Detalhe: '+lastError:''));
@@ -213,6 +254,7 @@ async function submitSavedLogin(tab){
   }finally{if(attached)await chrome.debugger.detach(target).catch(()=>{});}
 }
 async function openForm(tab,job){
+  await preserveOtherForm(tab,job);
   let loginAttempted=false,waitedLogin=0,trustedTried=false;const navigationVisited=[];
   for(let step=0;step<12;step++){
     await loaded(tab.id);await wait(600);
@@ -311,7 +353,7 @@ function confirmCreationSuccess(number=null,mode='click'){
  if(location.origin!=='https://admin.rcoengenharia.com'||location.pathname!=='/ordem_servico_form.php'||(number!==null&&new URL(location.href).searchParams.get('id_ordem_servico')!==number)||new URL(location.href).searchParams.get('id_ordem_servico')==='323902')return {clicked:false};
  const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim().toLowerCase();
  const visible=e=>!!(e.offsetWidth||e.offsetHeight||e.getClientRects().length);
- const successPanel=button=>{for(let e=button.parentElement,depth=0;e&&depth<12&&!['BODY','HTML'].includes(e.tagName);e=e.parentElement,depth++){const texts=[norm(e.innerText),norm(e.textContent)];if(texts.some(text=>text.length<500&&/registro\s*gravado|dados\s*foram\s*(?:alterados|gravados|salvos)/.test(text)&&!/(?:^|\s)(?:erro|falha)(?:\s|:|$)/.test(text)))return e;}return null;};
+ const successPanel=button=>{for(let e=button.parentElement,depth=0;e&&depth<12&&!['BODY','HTML'].includes(e.tagName);e=e.parentElement,depth++){const texts=[norm(e.innerText),norm(e.textContent)];if(texts.some(text=>text.length<500&&/registro\s*gravado|dados\s*foram\s*(?:alterados|gravados|salvos)/.test(text)&&!/(?:^|\s)(?:erro|falha)(?:\s|:|$)|exclu|apagar|remover|descartar/.test(text)))return e;}return null;};
  // Same visible native OK lookup as the supplied extension, scoped to its success window.
  const candidates=[...document.querySelectorAll('button,a,input[type="button"],input[type="submit"],[role="button"],.btn,[onclick]')].filter(e=>visible(e)&&!e.disabled&&norm(e.tagName==='INPUT'?e.value:e.innerText||e.textContent)==='ok'&&successPanel(e)).filter((e,i,all)=>!all.some(other=>other!==e&&other.contains?.(e)));
  if(!candidates.length)return {clicked:false};if(candidates.length!==1)throw Error('Há dois OK de sucesso visíveis. Nenhum clique repetido.');
@@ -640,13 +682,7 @@ async function recoverCreationOk(){
 // Supervisor approval routes an existing OS through a read-before-resume branch.
 // Existing preparation, photo upload and final Save/OK functions remain unchanged.
 async function prepareApprovedBatchStart(jobs){
- const tab=await imasTab(),url=new URL(tab.url);
- if(url.pathname!=='/ordem_servico_form.php')return;
- const expected=jobs.find(j=>j.approvalRequest&&j.externalNumber===url.searchParams.get('id_ordem_servico'));
- if(!expected)return prepareAutomaticBatchStart();
- const [identity]=await chrome.scripting.executeScript({target:{tabId:tab.id},world:'MAIN',func:number=>location.origin==='https://admin.rcoengenharia.com'&&document.getElementById('id_ordem_servico')?.value===number&&document.getElementById('id_cliente')?.value==='91'&&Number(window.jQuery?.active||0)===0&&![...document.querySelectorAll('input[type="file"]')].some(i=>i.files?.length),args:[expected.externalNumber]});
- if(!identity?.result)throw Error('O IMAS ainda está enviando arquivos ou tem uma edição pendente. A aprovação continua na fila.');
- await chrome.tabs.update(tab.id,{url:IMAS+'ordem_servico_rel.php'});await loaded(tab.id);
+ await prepareAutomaticBatchStart();
 }
 async function processApprovedClosing(job){
  safeJob(job);if(job.phase!=='encerrar')throw Error('Retomada exige número oficial do IMAS.');
@@ -678,18 +714,24 @@ async function processApprovedClosing(job){
 // Explicitly started automatic batch: one OS per alarm, durable progress, no replay.
 let automaticBatchRunning=false;
 async function leaveSavedBatchForm(number){
- const tab=await imasTab();
- const [r]=await chrome.scripting.executeScript({target:{tabId:tab.id},func:expected=>location.origin==='https://admin.rcoengenharia.com'&&location.pathname==='/ordem_servico_form.php'&&document.getElementById('id_ordem_servico')?.value===expected,args:[number]});
- if(r?.result!==true)throw Error('A aba mudou após salvar. Lote pausado; nenhuma navegação será repetida.');
- await chrome.tabs.update(tab.id,{url:IMAS+'ordem_servico_rel.php'});await loaded(tab.id);
+ // Chamado DEPOIS da confirmação de salvamento: falha de navegação não
+ // transforma uma OS confirmada em falha nem autoriza repetir a criação.
+ try{
+  const tab=await imasTab();await loaded(tab.id);
+  const url=new URL((await chrome.tabs.get(tab.id)).url);
+  if(url.pathname!=='/ordem_servico_form.php')return;
+  const [r]=await chrome.scripting.executeScript({target:{tabId:tab.id},func:expected=>location.origin==='https://admin.rcoengenharia.com'&&location.pathname==='/ordem_servico_form.php'&&document.getElementById('id_ordem_servico')?.value===expected,args:[number]});
+  if(r?.result!==true){await chrome.storage.local.remove('imasAutomationTabId');await audit('navegacao-apos-confirmacao-preservada',{osNumber:number,message:'Outro formulário preservado. A OS já confirmada não será repetida.'});return;}
+  await chrome.tabs.update(tab.id,{url:IMAS+'ordem_servico_rel.php'});await loaded(tab.id);
+ }catch(e){await chrome.storage.local.remove('imasAutomationTabId');await audit('navegacao-apos-confirmacao-pendente',{osNumber:number,message:e.message});}
 }
 async function prepareAutomaticBatchStart(){
+ const {pending}=await chrome.storage.local.get('pending');
+ if(pending)throw Error('OS '+(pending.externalNumber||pending.reference||pending.publicId)+' tem etapa pendente: '+pending.state+'. Confira a auditoria antes de liberar.');
  const tab=await imasTab();
- if(new URL(tab.url).pathname!=='/ordem_servico_form.php')return;
- const {lastDiagnostic,audit:events=[]}=await chrome.storage.local.get(['lastDiagnostic','audit']);
- const saved=lastDiagnostic?.state==='completed'&&[...events].reverse().find(e=>e.kind==='encerramento-confirmado'&&e.publicId===lastDiagnostic.publicId&&/^\d+$/.test(e.osNumber));
- if(!saved)throw Error('Há um formulário em edição. Volte à lista de OS antes de iniciar o lote.');
- await leaveSavedBatchForm(saved.osNumber);
+ if(new URL(tab.pendingUrl||tab.url).pathname!=='/ordem_servico_form.php')return;
+ // Não presume que uma tela sem atividade está salva: deixa a aba intacta.
+ await newAutomationTab();
 }
 async function leaveFailedBatchForm(job){
  const tab=await imasTab();const url=new URL(tab.url);
@@ -704,11 +746,23 @@ async function finishAutomaticBatch(batch){
  const finished={...batch,state:'concluído',finishedAt:new Date().toISOString(),current:null};
  await chrome.storage.local.set({batch:finished});await audit('lote-automatico-concluido',{completed:finished.completed,skipped:finished.skipped});
 }
+// Só retoma aprovação prévia e conteúdo inalterado, por clique explícito do Supervisor.
+function canRetryClosing(job){return job?.phase==='encerrar'&&!isProtected(job)&&['failed','completed'].includes(job.approvalRequest?.state)&&/^[a-f0-9]{64}$/.test(job.approvalRequest?.fingerprint||'')&&job.errors?.length>0&&job.errors.every(e=>/^Erro do IMAS/.test(e));}
+async function retryApprovedClosing(job){
+ if(!canRetryClosing(job))throw Error('A OS precisa de revisão de conteúdo no RCO.');
+ await message(await rcoTab(),{action:'approval-retry',publicId:job.publicId,fingerprint:job.approvalRequest.fingerprint});
+ await audit('retomada-aprovacao-tecnica',{publicId:job.publicId,osNumber:job.externalNumber,message:'Retomada solicitada pelo Supervisor. Servidor validou a aprovação; fotos e tentativas preservadas.'});
+}
 async function startAutomaticBatch(publicIds,mode='close'){
+ let data=await queue();
  const {pending,batch,closeAttempts={},saveAttempts={}}=await chrome.storage.local.get(['pending','batch','closeAttempts','saveAttempts']);
- if(running||automaticBatchRunning||pending)throw Error('Há uma OS em andamento ou travada. Use "Liberar OS travada" ou aguarde.');
+ if(running||automaticBatchRunning)throw Error('Há uma execução ativa. Aguarde a OS atual terminar.');
+ if(pending)throw Error('OS '+(pending.externalNumber||pending.reference||pending.publicId)+' pendente: '+pending.state+'. Use Liberar pendência local após conferir a auditoria.');
  if(batch?.automatic&&batch.state==='executando')throw Error('O lote já está em execução.');
- const requested=publicIds?new Set(publicIds):null,selected=(await queue()).jobs.filter(j=>!requested||requested.has(j.publicId));
+ const requested=publicIds?new Set(publicIds):null;
+ let selected=data.jobs.filter(j=>!requested||requested.has(j.publicId));
+ let retried=false;for(const job of selected)if(canRetryClosing(job)){await retryApprovedClosing(job);retried=true;}
+ if(retried){data=await queue();selected=data.jobs.filter(j=>!requested||requested.has(j.publicId));}
  const eligible=[],skipped=[];
  for(const job of selected){
   const reason=!job.ready?job.errors.join('; '):isProtected(job)?'OS protegida pelo supervisor':!job.approvalRequest&&(job.report?.photos?.length||0)>CONFIG.maxFotosSemRevisao?`${job.report.photos.length} fotos (limite ${CONFIG.maxFotosSemRevisao}) — revisar necessidade e aprovar no app`:OS_TESTES_ANTERIORES.has(job.externalNumber)?'OS dos testes anteriores: não reprocessar (já tratadas manualmente)':!job.approvalRequest&&(closeAttempts[job.publicId]||saveAttempts[job.publicId])?'Tentativa anterior: conferir antes de repetir':'';
@@ -793,11 +847,11 @@ async function restoreAutomaticBatch(){
  if(!await chrome.alarms.get('rco-imas-batch'))await chrome.alarms.create('rco-imas-batch',{when:Date.now()+2000});
 }
 
-// Modo automático REMOVIDO (3.0.2): a extensão só trabalha quando você clica em Executar.
+// Modo automático REMOVIDO (3.0.5): a extensão só trabalha quando você clica em Executar.
 async function queueRetry(){let last;for(let i=0;i<3;i++){try{return await queue(25000);}catch(e){last=e;if(/Entre como Supervisor|403/.test(e.message))break;await wait(5000);}}throw last;}
 // ===== 3.0: três botões de execução + Forçar fechamento (somente quando o supervisor clica) =====
 async function runGroup(group){
- const jobs=(await queue()).jobs.filter(j=>!isProtected(j)&&j.ready);
+ const jobs=(await queue()).jobs.filter(j=>!isProtected(j)&&(j.ready||canRetryClosing(j)));
  const isCorr=j=>j.report?.origin==='app';
  const pick=group==='create'?jobs.filter(j=>j.phase==='criar'):group==='corrective'?jobs.filter(j=>j.phase==='encerrar'&&isCorr(j)):jobs.filter(j=>j.phase==='encerrar'&&!isCorr(j));
  const nome=group==='create'?'OS corretivas para criar no IMAS':group==='corrective'?'OS corretivas para concluir':'OS preventivas liberadas';
@@ -805,38 +859,18 @@ async function runGroup(group){
  await audit('execucao-iniciada',{group,total:pick.length});
  return startAutomaticBatch(pick.map(j=>j.publicId),group==='create'?'create':'close');
 }
-// Forçar fechamento: para OS travada por erro. Libera as travas SÓ desta OS e reprocessa preservando as fotos.
-// Se a OS já está Concluída no IMAS, apenas registra a baixa no app. Nunca reenvia fotos que já estão no IMAS.
-async function forceClose(publicId){
- if(running||automaticBatchRunning)throw Error('Aguarde a execução atual terminar ou use Parar lote.');
- const job0=(await queue()).jobs.find(j=>j.publicId===publicId);
- if(!job0)throw Error('OS não encontrada na fila do app.');
- const protegida=isProtected(job0); // OS protegida: só é permitido registrar a baixa se já estiver Concluída no IMAS (somente leitura no IMAS)
- if(job0.phase!=='encerrar'||!/^\d+$/.test(job0.externalNumber||''))throw Error('Esta OS ainda não tem número do IMAS. Use "Criar OS corretivas" primeiro.');
- const st=await chrome.storage.local.get(['pending','closeAttempts']);
- if(st.pending&&st.pending.publicId!==publicId)throw Error('Há outra OS travada ('+(st.pending.reference||st.pending.publicId)+'). Force o fechamento dela primeiro.');
- // Só as travas de aprovação/tentativa são ignoradas; dados faltando (datas, observação, fotos) continuam bloqueando.
- const real=(job0.errors||[]).filter(e=>!/aprova|revis[aã]o do supervisor|tentativa anterior/i.test(e));
- const ca={...(st.closeAttempts||{})};delete ca[publicId];
- await chrome.storage.local.set({closeAttempts:ca});await chrome.storage.local.remove('pending');
-
- FORCED.add(publicId);
- try{
- await audit('fechamento-forcado-inicio',{publicId,osNumber:job0.externalNumber,state:job0.report?.automationState||'',errors:job0.errors});
- const tab=await imasTab();
- await openForm(tab,{...job0,ready:true,errors:[]});await chrome.tabs.reload(tab.id);await loaded(tab.id);await wait(1500);
- if(await imasConcluded(tab)){
-  await message(await rcoTab(),{action:'baixar',publicId,osNumber:job0.externalNumber});
-  await audit('baixa-forcada',{publicId,osNumber:job0.externalNumber,message:'OS já Concluída no IMAS; baixa registrada no app sem alterar o IMAS.'});
-  return {message:'OS '+job0.externalNumber+': já está Concluída no IMAS. Baixa registrada no app, sem alterar nada no IMAS.'};
- }
- if(protegida)throw Error('OS '+job0.externalNumber+' é protegida e ainda NÃO está Concluída no IMAS: a extensão não vai alterá-la. Conclua no IMAS à mão e use Forçar fechamento de novo para registrar a baixa.');
- if(real.length)throw Error('OS '+job0.externalNumber+' não pode ser fechada: '+real.join('; '));
- const forced={...job0,ready:true,errors:[]};safeJob(forced);
- await audit('fechamento-forcado-reprocesso',{publicId,osNumber:job0.externalNumber});
- await processApprovedClosing(forced);
- return {message:'OS '+job0.externalNumber+': fechamento forçado concluído e baixa registrada.'};
- }finally{FORCED.delete(publicId);}
+// Retomada explícita: exige a aprovação atual e relê fotos no IMAS antes de qualquer envio.
+async function resumeClosing(publicId){
+ if(running||automaticBatchRunning||(await chrome.storage.local.get('batch')).batch?.state==='executando')throw Error('Aguarde a execução atual terminar ou use Parar lote.');
+ const job=safeJob((await queue()).jobs.find(j=>j.publicId===publicId));
+ if(job.phase!=='encerrar')throw Error('Aguarde o número oficial da criação.');
+ if(!job.approvalRequest?.requestId||job.approvalRequest.state!=='queued')throw Error('Use Reabrir OS — voltar à fila no RCO para autorizar a retomada.');
+ const {pending}=await chrome.storage.local.get('pending');
+ if(pending&&pending.publicId!==publicId)throw Error('Existe outra OS preparada. Confira a auditoria antes de retomar.');
+ await message(await rcoTab(),{action:'approval-claim',publicId,requestId:job.approvalRequest.requestId});
+ await audit('retomada-solicitada',{publicId,osNumber:job.externalNumber,message:'Aprovação consumida. Fotos serão conferidas no IMAS antes de qualquer envio.'});
+ try{await processApprovedClosing(job);return {message:'OS '+job.externalNumber+': encerramento e baixa confirmados.'};}
+ catch(e){await recordClosingPreflightFailure(publicId,e,Date.now());throw e;}
 }
 // Conferência de baixas (SOMENTE LEITURA no IMAS): para OS já concluídas no IMAS e ainda sem baixa no app, confirma pela leitura do IMAS e registra a baixa.
 async function reconcileBaixas(){
@@ -901,12 +935,12 @@ chrome.runtime.onMessage.addListener((m,sender,respond)=>{
  const fromRco=sender.id===chrome.runtime.id&&sender.tab?.url?.startsWith(RCO);
  if(!fromPopup&&!fromRco)return;
  // Ações que a página do app RCO pode disparar (botões do painel do supervisor).
- if(!fromPopup&&!['preview','batch','save-creation','create-save','close-save','review-check','intake','run-create','run-close-corrective','run-close-preventive','force-close'].includes(m.action))return;
+ if(!fromPopup&&!['preview','batch','save-creation','create-save','close-save','review-check','intake','run-create','run-close-corrective','run-close-preventive','force-close','resume-close'].includes(m.action))return;
  const startedAt=Date.now();
  (async()=>{
   if(['preview','create-save','close-save','save-creation','release'].includes(m.action)&&(await chrome.storage.local.get('batch')).batch?.state==='executando')throw Error('O lote está executando. Pare o lote antes de iniciar outra operação.');
   switch(m.action){
-   case 'queue':{const data=await queue();return {jobs:data.jobs.map(j=>({publicId:j.publicId,reference:j.reference,externalNumber:j.externalNumber||'',phase:j.phase,ready:j.ready,errors:j.errors,origin:j.report?.origin||'',state:j.report?.automationState||'',approved:!!j.approvalRequest,protectedOs:isProtected(j)}))};}
+   case 'queue':{const data=await queue();return {jobs:data.jobs.map(j=>({publicId:j.publicId,reference:j.reference,externalNumber:j.externalNumber||'',phase:j.phase,ready:j.ready,retryable:canRetryClosing(j),errors:j.errors,origin:j.report?.origin||'',state:j.report?.automationState||'',approved:!!j.approvalRequest,protectedOs:isProtected(j)}))};}
    case 'preview':return preview(m.publicId);
    case 'create-save':return createAndSave(m.publicId);
    case 'close-save':return closeAndSave(m.publicId);
@@ -919,10 +953,13 @@ chrome.runtime.onMessage.addListener((m,sender,respond)=>{
    case 'run-create':return runGroup('create');
    case 'run-close-corrective':return runGroup('corrective');
    case 'run-close-preventive':return runGroup('preventive');
-   case 'force-close':return forceClose(m.publicId);
+   case 'resume-close':
+   case 'force-close':return resumeClosing(m.publicId);
    case 'release':{
     if(running||automaticBatchRunning)throw Error('Aguarde a execução terminar.');
     const {pending}=await chrome.storage.local.get('pending');if(!pending)return {message:'Nenhuma OS travada.'};
+    const {pendingHistory=[]}=await chrome.storage.local.get('pendingHistory');
+    await chrome.storage.local.set({pendingHistory:[...pendingHistory,{...pending,releasedAt:new Date().toISOString()}].slice(-20)});
     await chrome.storage.local.remove('pending');await audit('os-liberada-manual',{publicId:pending.publicId,state:pending.state});
     return {message:`OS ${pending.reference||pending.publicId} liberada (estado: ${pending.state}). Confira no IMAS antes de reenviar; tentativas de salvar/enviar continuam registradas.`};
    }

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "RCO para IMAS",
-  "version": "3.0.2",
+  "version": "3.0.5",
   "description": "Cria, encerra (fotos + Salvar) e dá baixa das OS do app RCO no IMAS, uma por vez, com conferência antes e depois.",
   "permissions": [
     "tabs",

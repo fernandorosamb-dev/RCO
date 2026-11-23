@@ -9,10 +9,11 @@
   }
   chrome.runtime.onMessage.addListener((message,sender,respond)=>{
     if(globalThis.__rcoBridgeInstalled!==bridgeVersion)return;
-    if(sender.id!==chrome.runtime.id||!['fila','foto','diagnostic','vincular','baixar','approval-claim','contract'].includes(message.action))return;
+    if(sender.id!==chrome.runtime.id||!['fila','foto','diagnostic','vincular','baixar','approval-claim','approval-retry','contract'].includes(message.action))return;
     (async()=>{
       if(message.action==='baixar'){const response=await fetch('/api/reports/downloaded',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({publicId:message.publicId,expectedNumber:message.osNumber})});const result=await response.json();if(!response.ok)throw Error(result.error||'Baixa não confirmada.');window.dispatchEvent(new Event('rco-imas-updated'));return result;}
       if(message.action==='vincular'){const result=await get('/api/imas/link',{publicId:message.publicId,osNumber:message.osNumber});window.dispatchEvent(new Event('rco-imas-updated'));return result;}
+      if(message.action==='approval-retry'){if(!/^[a-f0-9]{64}$/.test(message.fingerprint||''))throw Error('Aprovação inválida.');const result=await get('/api/imas/approve',{action:'retry',publicId:message.publicId,fingerprint:message.fingerprint});window.dispatchEvent(new Event('rco-imas-updated'));return result;}
       if(message.action==='approval-claim'){const result=await get('/api/imas/approve',{action:'claim',publicId:message.publicId,requestId:message.requestId});window.dispatchEvent(new Event('rco-imas-updated'));return result;}
       if(message.action==='contract'){
         // Contrato publicado pelo app (ver CONTRATO.md). Se o app ainda não tem o endpoint, devolve {missing:true}.

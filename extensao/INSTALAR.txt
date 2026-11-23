@@ -1,0 +1,37 @@
+RCO para IMAS 3.0.5
+Correções de trava local de equipamento, tempo da fila e navegação após confirmação. Não implementa vínculo automático de equipamento no IMAS. Se o IMAS recusar Salvar, o resultado permanece pendente; não marca baixa sem releitura do encerramento e das fotos.
+
+RCO para IMAS 3.0.4 — usa uma aba própria e preserva formulários existentes.
+Atualize os arquivos na mesma pasta da extensão instalada e clique em Recarregar em chrome://extensions. Depois F5 no RCO.
+
+RCO para IMAS 3.0.3
+Atualize os arquivos na mesma pasta da extensão instalada e clique em Recarregar em chrome://extensions. Depois atualize a aba RCO. Não remova a extensão: preserve seu histórico e registros de tentativas.
+Criação salva/vinculada libera a fila local; não marca encerramento. Retomar encerramento exige aprovação atual no RCO e confere as fotos já existentes no IMAS.
+Se FALTA EQUIPAMENTO: o código fornecido pelo RCO não é um vínculo salvo no IMAS. Vincule o equipamento na OS antes de retomar; não repita fotos.
+
+RCO PARA IMAS — VERSÃO 3.0.0
+
+SÓ MANUAL. Nada roda sozinho: a extensão só trabalha quando você clica.
+
+BOTÕES (popup e painel do site)
+1. Criar OS corretivas no IMAS — cria no IMAS as OS criadas no RCO e devolve o número para o app (só cria; não encerra).
+2. Concluir OS corretivas — fotos + dados + Salvar + OK no IMAS e baixa no app (OS corretivas já com número).
+3. Concluir OS preventivas liberadas — idem, para as preventivas aprovadas.
+4. Auditoria do processo — mostra o último processo, erros e avisos, e baixa o log completo (.txt) em Downloads.
+5. Forçar fechamento — para OS travada por erro: libera as travas SÓ daquela OS. Se já está Concluída no IMAS, apenas registra a baixa no app. Se não, reprocessa preservando fotos que já estão no IMAS (nunca reenvia).
+   Parar lote — interrompe depois da OS atual.
+
+REGRAS DE SEGURANÇA
+- Cada botão pede confirmação e mostra quantas OS serão processadas.
+- OS protegidas continuam intocáveis.
+- FALTA EQUIPAMENTO: se a OS não tem Equipamento no IMAS, a extensão para antes de alterar qualquer campo e avisa.
+- Fotos são conferidas no servidor do IMAS; se já estão lá, a extensão retoma sem reenviar.
+- Salvar + OK com até 3 tentativas, só repetindo se o IMAS ainda não mostra Concluída.
+
+ATUALIZAR: chrome://extensions > RCO para IMAS > botão de recarregar. Depois F5 na aba do RCO. Deixe só uma aba do IMAS, na lista de OS. Não apague a pasta.
+Contrato com o app: CONTRATO.md.
+
+HISTÓRICO
+2.5.x: login automático do IMAS, Salvar+OK x3, conferência no servidor, retomada com fotos, aviso de Equipamento, modo automático removido.
+3.0.0: popup refeito com os 5 botões; Forçar fechamento; criar/concluir por grupo (corretivas x preventivas); painel no site.
+3.0.1: Forçar fechamento aceita OS protegida SÓ para registrar a baixa quando ela já está Concluída no IMAS (ex.: 323902). Nunca altera o IMAS.

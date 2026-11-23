@@ -148,8 +148,9 @@
     if(job.phase==='criar'&&((urlNumber&&urlNumber!=='0')||(code&&code.value&&code.value!=='0')))throw Error('Este formulário já tem número. Abra Novo para não sobrescrever uma OS existente.');
     if(job.phase==='encerrar'&&urlNumber!==job.externalNumber)throw Error('A OS aberta não corresponde à OS da fila.');
     if(job.phase==='encerrar'&&matches(read(field('status')),'Concluída'))throw Error('Esta OS já está concluída no IMAS. Confira a baixa manualmente.');
-    // O IMAS não conclui OS sem Equipamento vinculado: avisa antes de mexer em qualquer campo.
-    if(job.phase==='encerrar'){const equip=[...document.querySelectorAll('#div-equipamentos tr')].filter(r=>!r.querySelector('th')&&/\d/.test(r.textContent));if(!equip.length){const e=Error('FALTA EQUIPAMENTO: a OS '+job.externalNumber+' não tem Equipamento no IMAS e não encerra assim. No IMAS abra a OS, em Equipamentos clique em Adicionar equipamento e escolha o correto; depois rode de novo. Nada foi alterado.');e.noFormChanges=true;throw e;}}
+    // Equipamento obrigatório é validado no RCO. Tabela vazia/fechada no HTML
+    // não comprova uma recusa do IMAS: a confirmação continua exigindo a
+    // releitura dos campos, status Concluída e fotos persistidos após Salvar.
     // Preflight every field before any values are changed.
     try{
       for(const key of Object.keys(expected(job))){await progress('Identificar campo',key);field(key);}
@@ -205,6 +206,7 @@
   async function audit(job){const errors=[],fields={};for(const [key,value]of Object.entries(expected(job))){if(job.verifyUploaded&&key==='creationJustification')continue;try{const actual=read(field(key));fields[key]=actual;if(!matches(actual,value))errors.push(key);}catch(e){errors.push(e.message);}}
     for(const key of ['start','end',...(job.phase==='criar'?['opened']:[])]){const value=key==='start'?job.report.executionStartedAt:key==='end'?job.report.completedAt:job.report.imasOpenedAt;const [date,time]=split(value);try{const dateElement=field(key+'Date');if(dateElement.value!==(dateElement.type==='date'?date:date.split('-').reverse().join('/')))errors.push(key+'Date');if(field(key+'Time').value!==time)errors.push(key+'Time');}catch(e){errors.push(e.message);}}
     const e=field('observation',true),editor=observationEditors();let stored=e?.value;if(e&&document.getElementById('cke_obs')){const parsed=document.createElement('div');parsed.innerHTML=e.value;stored=editorText(parsed);}if(e&&!sameObservation(stored,job.report.observations))errors.push('observation');if(!job.verifyUploaded&&!(e&&document.getElementById('cke_obs')&&sameObservation(stored,job.report.observations))&&(editor.length>1||(editor.length===1&&!sameObservation(editorText(editor[0]),job.report.observations))||(!editor.length&&(!e||!visible(e)))))errors.push('observationEditor');
+    if(!job.verifyUploaded&&document.getElementById('cke_obs')){let body;try{const box=document.getElementById('cke_obs');body=box.querySelector('iframe')?.contentDocument?.body||box.querySelector('[contenteditable]');}catch{}if(!body||!sameObservation(editorText(body),job.report.observations))errors.push('observationEditor');}
     let photos=0;if(job.phase==='encerrar'){try{photos=job.verifyUploaded?linkedPhotos(job).count:photoInput().files.length;if(photos!==job.report.photos.length)errors.push(`Quantidade de fotos (${photos} no IMAS, ${job.report.photos.length} no app)`);}catch(e){errors.push(e.message);}}
     return {ok:errors.length===0,errors,fields,photos,saveClicked:false,uploadClicked:false};
   }
